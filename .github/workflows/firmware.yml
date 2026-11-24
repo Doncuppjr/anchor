@@ -1,4 +1,5 @@
 name: ANCHOR C5 firmware
+# Build signed-off production/debug artifacts and publish the generated browser installer.
 
 on:
   workflow_dispatch:
