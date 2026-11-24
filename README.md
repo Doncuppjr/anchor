@@ -14,7 +14,7 @@ This directory contains the current ESP32-C5 ANCHOR bridge firmware, the matchin
 - RadioMaster TX15 PB8 <- C5 GPIO11 UART TX.
 - RadioMaster TX15 PH11 -> C5 GPIO1 active-low module enable; HIGH cancels a waiting OTA maintenance session.
 - ANCHOR: XIAO ESP32-C5, Arduino ESP32 core 4.0.0; build FQBN `esp32:esp32:XIAO_ESP32C5`.
-- YACHT: XIAO nRF52840 Sense, TinyGo BLE trainer notifications, notification credit window 4.
+- YACHT: XIAO nRF52840 Sense, TinyGo BLE trainer notifications, notification credit window 5 (validated production setting).
 - Serial AT handshake: `AT+BAUD4`, `AT+NAME...`, `AT+TXPW...`, then `AT+OTA` for maintenance or `AT+ROLE0` / `AT+ROLE1` for normal roles.
 
 ## OTA behavior tested so far
@@ -34,7 +34,7 @@ The TX15 hardware displayed the optional Update module button, and the command s
 - `firmware/ANCHOR-C5-OTA-cancel-app.bin`: current compiled application, used in the last USB flash.
 - `firmware/ANCHOR-C5-USB-recovery-merged.bin`: full recovery flash image. Never upload it via Wi-Fi OTA.
 - `firmware/EdgeTX-TX15-OTA-cancel.uf2`: matching EdgeTX test build for TX15 UF2 mode.
-- `firmware/YACHT-nRF52840-credit-window4-tested.uf2`: tested YACHT firmware snapshot, which can be older than subsequent uncommitted source edits now saved on this branch.
+- `firmware/YACHT-nRF52840-credit-window4-tested.uf2`: historical four-credit firmware snapshot for rollback and comparison, **not** the final five-credit production candidate. The active source default is five; rebuild and verify before deployment.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
 - `../patches/tinygo-bluetooth-notification-complete.patch`: required TinyGo BLE TX completion API patch.
 - `../patches/yacht-latest-state-ble.patch`: source changes relative to the YACHT low-latency branch's prior commit.
