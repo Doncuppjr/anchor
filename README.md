@@ -1,33 +1,26 @@
-# Anchor: portable Bluetooth trainer bridge
+# ANCHOR + YACHT Bluetooth Trainer bridge
 
-Anchor is one application with board-specific hardware profiles rather than a
-fork per device. Supported build targets:
+This standalone repository contains the ESP32-C5 Anchor receiver/bridge firmware, documented trainer protocol, browser installer, and optional AT OTA contract. Yacht firmware and TinyGo BLE changes are maintained separately in [yacht](https://github.com/Doncuppjr/yacht).
+
+## Supported boards and builds
+
+Anchor's shared application is in `firmware/anchor/src/anchor.cpp`; GPIO, wake and
+flash settings live under `boards/`. Build with:
 
 ```sh
 make BOARD=c5 PROFILE=production
 make BOARD=c5 PROFILE=debug
 make BOARD=c3-supermini PROFILE=production
 make BOARD=c3-supermini PROFILE=debug
-make c5 PROD=TRUE              # alias
-make c3-supermini PROD=FALSE   # alias
+make c5 PROD=TRUE
+make c3-supermini PROD=FALSE
 make test
 ```
 
-Arduino CLI 1.6.0 with ESP32 core 4.0.0 is used by these profiles. Compiler
-output goes to `dist/<board>/<profile>/`. `*-app.bin` is OTA-only; `*-full.bin`
-is a USB/full-flash image. This is a build-portability milestone, not proof of
-hardware compatibility: newly added boards require UART, GPIO, sleep/wake, BLE,
-and OTA regression testing.
-
-For the C3 Super Mini, see [board wiring and limitations](boards/README.md).
-The browser installer includes a board selector for C5 and experimental C3 firmware.
-The C3 is compile-verified only and must be hardware-tested before deployment.
-
----
-
-# ANCHOR + YACHT Bluetooth Trainer bridge
-
-This standalone repository contains the ESP32-C5 Anchor receiver/bridge firmware, documented trainer protocol, browser installer, and optional AT OTA contract. Yacht firmware and TinyGo BLE changes are maintained separately in [yacht](https://github.com/Doncuppjr/yacht).
+The [USB installer](https://doncuppjr.github.io/anchor/) provides a board
+selector for XIAO ESP32-C5 and **experimental** ESP32-C3 Super Mini firmware.
+The C3 target has passed compilation and image validation, but **has not been
+hardware-validated**. Check [board wiring](boards/README.md) before testing.
 
 ## Repositories and branches
 
@@ -36,6 +29,10 @@ This standalone repository contains the ESP32-C5 Anchor receiver/bridge firmware
 - Repository: `Doncuppjr/anchor:main`.
 
 ## Hardware / wire contract
+
+See the [TX15 hardware build example](docs/HARDWARE-BUILD.md) for photos of
+the XIAO ESP32-C5, soldered harness, connector orientation, and placement
+inside the radio.
 
 - RadioMaster TX15 PB9 -> C5 GPIO12 UART RX.
 - RadioMaster TX15 PB8 <- C5 GPIO11 UART TX.
@@ -57,12 +54,11 @@ The TX15 hardware displayed the optional Update module button, and the command s
 
 ## Files
 
-- `firmware/anchor/src/anchor.cpp`: shared ANCHOR application code.
-- `boards/`: target-specific pin, wake and flash profiles.
-- `Makefile`: common build entry point.
+- `firmware/anchor/src/anchor.cpp`: shared application code, built with `Makefile` and `boards/` profiles.
 - EdgeTX radio firmware is maintained separately; it is not built or shipped by Anchor.
 - Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
+- [USB web flashing guide](docs/USB-FLASHING.md): step-by-step browser installation with screenshots, erase choices, and recovery instructions.
 
 Firmware binaries and SHA-256 manifests are generated as GitHub Actions artifacts rather than stored in source control. Refer to the build run for the matching checksums.
 
@@ -78,7 +74,7 @@ wider distribution; Cliff's repository uses GPL-3.0.
 
 ## GitHub Actions build workflow
 
-[ANCHOR C5 firmware](../.github/workflows/anchor-firmware.yml) builds two
+[Anchor build workflow](.github/workflows/firmware.yml) builds two
 application-only ESP32-C5 images on every push to `main`
 branch, on relevant pull requests, and via manual `workflow_dispatch`.
 It pins Arduino CLI **1.6.0**, Espressif Arduino core **4.0.0**, and board
@@ -127,6 +123,10 @@ See the [Espressif ESP32-C5 esptool guide](https://docs.espressif.com/projects/e
 `ANCHOR_DEBUG` defaults to `0` for production. Run `make BOARD=c5 PROFILE=production` or `make BOARD=c5 PROFILE=debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
 
 ## Browser installer (first-time USB setup)
+
+Follow the [illustrated USB web flashing guide](docs/USB-FLASHING.md) for
+each dialog and choice, including port selection, the erase option,
+installation confirmation, and completion.
 
 A static, no-command-line installer is provided in [`installer/`](installer/).
 It uses [ESP Web Tools](https://esphome.github.io/esp-web-tools/) and Chrome or
