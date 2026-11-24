@@ -9,7 +9,7 @@ variant="${1:-production}"
 case "$variant" in
   production) debug=0 ;;
   debug) debug=1 ;;
-  *) echo 'Usage: ANCHOR/build-firmware.sh [production|debug]' >&2; exit 2 ;;
+  *) echo 'Usage: build-firmware.sh [production|debug]' >&2; exit 2 ;;
 esac
 
 cli="${ARDUINO_CLI:-arduino-cli}"

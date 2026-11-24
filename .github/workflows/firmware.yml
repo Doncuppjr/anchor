@@ -1,0 +1,175 @@
+name: ANCHOR C5 firmware
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'firmware/anchor_c5.ino'
+      - 'firmware/trainer_protocol.h'
+      - 'tests/**'
+      - 'build-firmware.sh'
+      - 'installer/**'
+      - '.github/workflows/firmware.yml'
+  pull_request:
+    paths:
+      - 'firmware/anchor_c5.ino'
+      - 'firmware/trainer_protocol.h'
+      - 'tests/**'
+      - 'build-firmware.sh'
+      - 'installer/**'
+      - '.github/workflows/firmware.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ESP32-C5 / ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [production, debug]
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.6.0'
+
+      - name: Install pinned ESP32 board platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@4.0.0 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core list
+
+      - name: Test trainer framing parser (host compiler)
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror tests/test_trainer_protocol.cpp -o /tmp/anchor-trainer-test
+          /tmp/anchor-trainer-test
+
+      - name: Build ANCHOR application image
+        run: ./build-firmware.sh "${{ matrix.variant }}"
+
+      - name: Verify build profile and package
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          out="dist/$VARIANT"
+          app="$out/ANCHOR-C5-$VARIANT-app.bin"
+          test -s "$app"
+          full="$out/ANCHOR-C5-$VARIANT-full.bin"
+          test "$(stat -c %s "$full")" -eq 8388608
+          # ESP32-C5 merged layout: bootloader at 0x2000, partitions at
+          # 0x8000, application at 0x10000. Verify magic bytes and that the
+          # embedded application exactly matches the separately built OTA bin.
+          python3 - "$app" "$full" <<'PYVERIFY'
+          from pathlib import Path
+          import sys
+          app = Path(sys.argv[1]).read_bytes()
+          full = Path(sys.argv[2]).read_bytes()
+          assert full[0x2000] == 0xe9, 'bootloader magic missing'
+          assert full[0x8000:0x8002] == bytes([0xaa, 0x50]), 'partition table magic missing'
+          assert full[0x10000:0x10000+len(app)] == app, 'app differs from merged image'
+          PYVERIFY
+          # Debug-only functionality must not leak into the production binary.
+          if [[ "$VARIANT" == production ]]; then
+            ! grep -aFq 'INJECTED_DISCONNECT previouslyConnected' "$app"
+            ! grep -aFq 'TELEMTEST queued=' "$app"
+          else
+            grep -aFq 'INJECTED_DISCONNECT previouslyConnected' "$app"
+            grep -aFq 'TELEMTEST queued=' "$app"
+          fi
+          # Both profiles must include the normal AT command and OTA page.
+          grep -aFq 'AT+OTA' "$app"
+          grep -aFq 'ANCHOR Chain' "$app"
+          (
+            cd "$out"
+            sha256sum "ANCHOR-C5-$VARIANT-app.bin" "ANCHOR-C5-$VARIANT-full.bin" > SHA256SUMS
+            printf 'git_commit=%s\nvariant=%s\nboard=esp32:esp32:XIAO_ESP32C5\narduino_cli=1.6.0\nesp32_core=4.0.0\n' \
+              "$GITHUB_SHA" "$VARIANT" > BUILD-METADATA.txt
+          )
+
+      - name: Upload USB and OTA firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: ANCHOR-C5-${{ matrix.variant }}-${{ github.sha }}
+          path: |
+            dist/${{ matrix.variant }}/ANCHOR-C5-${{ matrix.variant }}-app.bin
+            dist/${{ matrix.variant }}/ANCHOR-C5-${{ matrix.variant }}-full.bin
+            dist/${{ matrix.variant }}/SHA256SUMS
+            dist/${{ matrix.variant }}/BUILD-METADATA.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  installer:
+    name: Package browser installer
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout installer source
+        uses: actions/checkout@v4
+      - name: Download firmware images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ANCHOR-C5-*-${{ github.sha }}
+          path: dist
+          merge-multiple: false
+      - name: Arrange downloaded firmware variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in production debug; do
+            d="dist/ANCHOR-C5-$variant-${GITHUB_SHA}"
+            test -f "$d/ANCHOR-C5-$variant-full.bin"
+            mkdir -p "dist/$variant"
+            cp "$d/"* "dist/$variant/"
+          done
+      - name: Create GitHub Pages site
+        run: python3 installer/generate-site.py --dist dist --output site --version "${GITHUB_SHA:0:12}"
+        shell: bash
+      - name: Check installer files
+        run: |
+          test -f site/index.html
+          test -f site/production/manifest.json
+          test -f site/debug/manifest.json
+      - name: Publish installer site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ANCHOR-browser-installer-${{ github.sha }}
+          path: site/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+      - name: Upload GitHub Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    permissions:
+      pages: write
+      id-token: write
+    name: Deploy browser installer
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: installer
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -21,4 +21,4 @@ This does not replace the radio's Wi-Fi OTA path (which accepts only
 application-only images), and it does not add UF2 support to the C5.
 
 Once GitHub Pages is enabled in repository settings, push a change under
-`ANCHOR/installer/` or manually dispatch the ANCHOR workflow to publish the site.
+`installer/` or manually dispatch the ANCHOR workflow to publish the site.

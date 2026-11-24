@@ -1,12 +1,12 @@
 # ANCHOR + YACHT Bluetooth Trainer bridge
 
-This directory contains the current ESP32-C5 ANCHOR bridge firmware, the matching EdgeTX test firmware, the last tested YACHT nRF52840 firmware, and the generic optional AT OTA contract. The YACHT source changes for the project are in this branch's `src/` tree. Upstream TinyGo Bluetooth API changes are preserved as a patch in `../patches/`.
+This standalone repository contains the ESP32-C5 Anchor receiver/bridge firmware, documented trainer protocol, browser installer, and optional AT OTA contract. Yacht firmware and TinyGo BLE changes are maintained separately in [yacht](https://github.com/Doncuppjr/yacht).
 
 ## Repositories and branches
 
 - EdgeTX general-purpose `AT+OTA` extension: [Doncuppjr/edgetx, bluetooth/generic-module-ota](https://github.com/Doncuppjr/edgetx/tree/bluetooth/generic-module-ota)
 - Full TX15 BLE reliability / low-latency / OTA / Back-to-cancel integration: [Doncuppjr/edgetx, bluetooth/tx15-ota-integration](https://github.com/Doncuppjr/edgetx/tree/bluetooth/tx15-ota-integration)
-- This branch: `Doncuppjr/HeadTracker:anchor-yacht/integration-20261123`.
+- Repository: `Doncuppjr/anchor:main`.
 
 ## Hardware / wire contract
 
@@ -33,11 +33,9 @@ The TX15 hardware displayed the optional Update module button, and the command s
 - `firmware/anchor_c5.ino`: latest ANCHOR source.
 - `firmware/ANCHOR-C5-OTA-cancel-app.bin`: current compiled application, used in the last USB flash.
 - `firmware/ANCHOR-C5-USB-recovery-merged.bin`: full recovery flash image. Never upload it via Wi-Fi OTA.
-- `firmware/EdgeTX-TX15-OTA-cancel.uf2`: matching EdgeTX test build for TX15 UF2 mode.
-- `firmware/YACHT-nRF52840-credit-window4-tested.uf2`: historical four-credit firmware snapshot for rollback and comparison, **not** the final five-credit production candidate. The active source default is five; rebuild and verify before deployment.
+- EdgeTX radio firmware is maintained separately; it is not built or shipped by Anchor.
+- Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
-- `../patches/tinygo-bluetooth-notification-complete.patch`: required TinyGo BLE TX completion API patch.
-- `../patches/yacht-latest-state-ble.patch`: source changes relative to the YACHT low-latency branch's prior commit.
 
 See `firmware/SHA256SUMS` to verify downloaded firmware bytes.
 
@@ -54,7 +52,7 @@ wider distribution; Cliff's repository uses GPL-3.0.
 ## GitHub Actions build workflow
 
 [ANCHOR C5 firmware](../.github/workflows/anchor-firmware.yml) builds two
-application-only ESP32-C5 images on every relevant push to an `anchor-yacht/*`
+application-only ESP32-C5 images on every push to `main`
 branch, on relevant pull requests, and via manual `workflow_dispatch`.
 It pins Arduino CLI **1.6.0**, Espressif Arduino core **4.0.0**, and board
 `esp32:esp32:XIAO_ESP32C5` to match our tested development toolchain.
@@ -99,7 +97,7 @@ See the [Espressif ESP32-C5 esptool guide](https://docs.espressif.com/projects/e
 
 ## Production and diagnostic builds
 
-`ANCHOR_DEBUG` defaults to `0` for production. Run `./ANCHOR/build-firmware.sh production` or `./ANCHOR/build-firmware.sh debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
+`ANCHOR_DEBUG` defaults to `0` for production. Run `./build-firmware.sh production` or `./build-firmware.sh debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
 
 ## Browser installer (first-time USB setup)
 
@@ -116,7 +114,7 @@ provides a downloadable `ANCHOR-browser-installer-*` site artifact, and attempts
 to publish the site to GitHub Pages on integration-branch pushes or manual runs.
 The proposed site URL is:
 
-**https://doncuppjr.github.io/HeadTracker/**
+**https://doncuppjr.github.io/anchor/**
 
 **Site availability requires the repository's GitHub Pages source to be set to
 GitHub Actions** in Settings > Pages. If that has not been configured, the

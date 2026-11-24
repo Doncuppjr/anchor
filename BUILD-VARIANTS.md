@@ -8,13 +8,13 @@
 Run using Arduino CLI and the installed ESP32 4.0.0 core:
 
 ```sh
-ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./ANCHOR/build-firmware.sh production
-ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./ANCHOR/build-firmware.sh debug
+ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./build-firmware.sh production
+ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./build-firmware.sh debug
 ```
 
-Both builds place an OTA-compatible **application-only** image at `ANCHOR/dist/<variant>/ANCHOR-C5-<variant>-app.bin`. Never upload a merged full-flash image through the OTA webpage. `dist/` is ignored by Git; release binaries are copied separately into `ANCHOR/firmware/` after build verification.
+Both builds place an OTA-compatible **application-only** image at `dist/<variant>/ANCHOR-C5-<variant>-app.bin`. Never upload a merged full-flash image through the OTA webpage. `dist/` is ignored by Git; release binaries are copied separately into `firmware/` after build verification.
 
-**Status:** This debug-flag change is compile-verified for both configurations, not yet flashed or hardware regression-tested. The current hardware-tested image remains `ANCHOR/firmware/ANCHOR-C5-OTA-cancel-app.bin`.
+**Status:** This debug-flag change is compile-verified for both configurations, not yet flashed or hardware regression-tested. The current hardware-tested image remains `firmware/ANCHOR-C5-OTA-cancel-app.bin`.
 
 **Scope:** Compile-time bench/debug separation only; OTA authentication and signature/rollback hardening are separate production-release tasks.
 
@@ -27,7 +27,7 @@ binaries, SHA-256 checksums and build metadata. Release assets should be
 promoted only after hardware regression testing; green CI means compilation and
 static profile checks passed, not OTA or BLE validation.
 
-Each build also generates `ANCHOR/dist/<variant>/ANCHOR-C5-<variant>-full.bin`,
+Each build also generates `dist/<variant>/ANCHOR-C5-<variant>-full.bin`,
 an 8 MB merged USB-install/recovery image. Flash the full image at address
 `0x0` using esptool; it may erase stored settings. The GitHub Actions artifacts
 include both images, checksums, and build metadata.
