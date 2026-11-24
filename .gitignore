@@ -5,3 +5,11 @@ site/
 .vscode/
 __pycache__/
 *.pyc
+
+# Firmware artifacts are built and distributed by CI, never committed.
+*.bin
+*.uf2
+*.hex
+*.elf
+*.map
+firmware/SHA256SUMS

@@ -23,7 +23,7 @@ The TX15 hardware displayed the optional Update module button, and the command s
 
 - SSID `ANCHOR Chain`, WPA2 password `anchor-update` (fixed development password).
 - Web interface `http://192.168.4.1/`, HTTP Basic Auth `admin` / `anchor-update`.
-- Upload **application-only** `ANCHOR-C5-OTA-cancel-app.bin`, **not** the merged image. The merged image is for wired full recovery and may overwrite NVS settings if written to flash in full.
+- Upload the CI-generated **application-only** `ANCHOR-C5-production-app.bin` for OTA, **not** the merged image. A full image is for wired USB installation/recovery and may overwrite NVS settings.
 - No image signing/secure boot and no proven automatic rollback on failed boot. The default password should be changed before production use.
 - Firmware transfer through the webpage, malformed upload recovery, active-upload cancellation, Telemetry return, and inactivity shutdown require more testing.
 - On Back from the update dialog, EdgeTX drives PH11 HIGH for 1.8 seconds. The C5 recognizes HIGH for at least 100 ms; it reboots to return to normal Bluetooth unless a write is active. Generic EdgeTX UI remains hardware-neutral.
@@ -31,13 +31,11 @@ The TX15 hardware displayed the optional Update module button, and the command s
 ## Files
 
 - `firmware/anchor_c5.ino`: latest ANCHOR source.
-- `firmware/ANCHOR-C5-OTA-cancel-app.bin`: current compiled application, used in the last USB flash.
-- `firmware/ANCHOR-C5-USB-recovery-merged.bin`: full recovery flash image. Never upload it via Wi-Fi OTA.
 - EdgeTX radio firmware is maintained separately; it is not built or shipped by Anchor.
 - Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
 
-See `firmware/SHA256SUMS` to verify downloaded firmware bytes.
+Firmware binaries and SHA-256 manifests are generated as GitHub Actions artifacts rather than stored in source control. Refer to the build run for the matching checksums.
 
 ## Provenance and attribution
 

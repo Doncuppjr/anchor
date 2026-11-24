@@ -12,15 +12,15 @@ ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./build-firmware.sh produc
 ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./build-firmware.sh debug
 ```
 
-Both builds place an OTA-compatible **application-only** image at `dist/<variant>/ANCHOR-C5-<variant>-app.bin`. Never upload a merged full-flash image through the OTA webpage. `dist/` is ignored by Git; release binaries are copied separately into `firmware/` after build verification.
+Both builds place an OTA-compatible **application-only** image at `dist/<variant>/ANCHOR-C5-<variant>-app.bin`. Never upload a merged full-flash image through the OTA webpage. `dist/` is ignored by Git; binaries are provided by GitHub Actions build artifacts and the browser installer, not committed to source control.
 
-**Status:** This debug-flag change is compile-verified for both configurations, not yet flashed or hardware regression-tested. The current hardware-tested image remains `firmware/ANCHOR-C5-OTA-cancel-app.bin`.
+**Status:** This debug-flag change is compile-verified for both configurations, not yet flashed or hardware regression-tested. Previously hardware-tested firmware is historical and is no longer tracked in source control.
 
 **Scope:** Compile-time bench/debug separation only; OTA authentication and signature/rollback hardening are separate production-release tasks.
 
 ## Continuous integration
 
-GitHub Actions runs `.github/workflows/anchor-firmware.yml` on relevant branch
+GitHub Actions runs `.github/workflows/firmware.yml` on relevant branch
 pushes, pull requests and by manual dispatch. It uses the same build script as
 local development, with separately packaged production and debug application
 binaries, SHA-256 checksums and build metadata. Release assets should be
