@@ -17,3 +17,12 @@ Both builds place an OTA-compatible **application-only** image at `ANCHOR/dist/<
 **Status:** This debug-flag change is compile-verified for both configurations, not yet flashed or hardware regression-tested. The current hardware-tested image remains `ANCHOR/firmware/ANCHOR-C5-OTA-cancel-app.bin`.
 
 **Scope:** Compile-time bench/debug separation only; OTA authentication and signature/rollback hardening are separate production-release tasks.
+
+## Continuous integration
+
+GitHub Actions runs `.github/workflows/anchor-firmware.yml` on relevant branch
+pushes, pull requests and by manual dispatch. It uses the same build script as
+local development, with separately packaged production and debug application
+binaries, SHA-256 checksums and build metadata. Release assets should be
+promoted only after hardware regression testing; green CI means compilation and
+static profile checks passed, not OTA or BLE validation.

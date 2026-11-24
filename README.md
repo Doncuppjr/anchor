@@ -41,6 +41,33 @@ The TX15 hardware displayed the optional Update module button, and the command s
 
 See `firmware/SHA256SUMS` to verify downloaded firmware bytes.
 
+## Provenance and attribution
+
+ANCHOR is an independently developed ESP32-C5 implementation of the existing
+FrSky-compatible UART/AT and BLE trainer protocols, **not a source fork** of
+[Cliff's BTWifiModule](https://github.com/dlktdr/BTWifiModule). Cliff's project
+provided a valuable reference for the protocol and its GATT identifiers
+(`0xFFF0`, `0xFFF6`). We acknowledge that work without claiming its code was
+incorporated. A formal code-provenance and license review should precede
+wider distribution; Cliff's repository uses GPL-3.0.
+
+## GitHub Actions build workflow
+
+[ANCHOR C5 firmware](../.github/workflows/anchor-firmware.yml) builds two
+application-only ESP32-C5 images on every relevant push to an `anchor-yacht/*`
+branch, on relevant pull requests, and via manual `workflow_dispatch`.
+It pins Arduino CLI **1.6.0**, Espressif Arduino core **4.0.0**, and board
+`esp32:esp32:XIAO_ESP32C5` to match our tested development toolchain.
+Each run produces separate `production` and `debug` artifact downloads, with a
+SHA-256 file and source/toolchain metadata. The production job checks that
+bench-only diagnostic strings are absent; both jobs verify that the OTA
+protocol remains present. Artifacts are retained for 30 days.
+
+**These are firmware build checks, not hardware certification.** The runner
+cannot verify Trainer/Telemetry functionality, deep-sleep wake, BLE latency,
+or an OTA update on real hardware. Never flash an untested CI image during a
+flight; test a candidate on the bench first.
+
 ## Production and diagnostic builds
 
 `ANCHOR_DEBUG` defaults to `0` for production. Run `./ANCHOR/build-firmware.sh production` or `./ANCHOR/build-firmware.sh debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
