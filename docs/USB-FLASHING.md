@@ -3,6 +3,9 @@
 Install ANCHOR on a **Seeed XIAO ESP32-C5** for the RadioMaster TX15 using a
 USB cable and the browser installer. No command-line tools are required.
 
+For photos of the module and harness inside the radio, see the
+[TX15 hardware build example](HARDWARE-BUILD.md).
+
 **Open the installer:** <https://doncuppjr.github.io/anchor/>
 
 > The installer labels the firmware a bench candidate, not a validated
