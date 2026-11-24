@@ -1,4 +1,18 @@
 #include <Arduino.h>
+
+// Production (0) is the default. Override with -DANCHOR_DEBUG=1 to
+// include the USB bench command parser and verbose diagnostic output.
+#ifndef ANCHOR_DEBUG
+#define ANCHOR_DEBUG 0
+#endif
+
+#if ANCHOR_DEBUG
+#define ANCHOR_DIAG_PRINTF(...) Serial.printf(__VA_ARGS__)
+#define ANCHOR_DIAG_PRINTLN(...) Serial.println(__VA_ARGS__)
+#else
+#define ANCHOR_DIAG_PRINTF(...) do {} while (0)
+#define ANCHOR_DIAG_PRINTLN(...) do {} while (0)
+#endif
 #include <BLE.h>
 #include <Preferences.h>
 #include <WiFi.h>
@@ -144,19 +158,19 @@ static void readLocalBtAddr(){
   char str[13];snprintf(str,sizeof(str),"%02X%02X%02X%02X%02X%02X",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
   localBtAddr=String(str);
  }
- Serial.printf("LOCAL_BT_ADDR %s\n",localBtAddr.c_str());
+ ANCHOR_DIAG_PRINTF("LOCAL_BT_ADDR %s\n",localBtAddr.c_str());
 }
-static void reply(const String& s){Serial1.print(s);Serial1.print("\r\n");Serial.printf("UART< %s\n",s.c_str());}
+static void reply(const String& s){Serial1.print(s);Serial1.print("\r\n");ANCHOR_DIAG_PRINTF("UART< %s\n",s.c_str());}
 static void requestEdgeTxReset(){
  // A stray byte may precede us when EdgeTX switches UART baud. Its
  // readline() demands an exact ERROR line. A leading empty CRLF clears
  // any partial line on the EdgeTX parser before the reset signal.
  Serial1.print("\r\nERROR\r\n");Serial1.flush();
- Serial.println("UART< <CRLF>ERROR<CRLF> clean parser recovery request");
+ ANCHOR_DIAG_PRINTLN("UART< <CRLF>ERROR<CRLF> clean parser recovery request");
 }
 static void replyPeripheral(){
  if(validAddr(localBtAddr))reply("Peripheral:"+localBtAddr);
- else Serial.println("LOCAL_BT_ADDR unavailable; refusing placeholder");
+ else ANCHOR_DIAG_PRINTLN("LOCAL_BT_ADDR unavailable; refusing placeholder");
 }
 static String asMac(const BTAddress& address){
  String s=address.toString();
@@ -164,7 +178,7 @@ static String asMac(const BTAddress& address){
 }
 static void telemetryStartServer(){
  telemetryServer=BLE.createServer();
- if(!telemetryServer){Serial.println("TELEMETRY_SERVER_ERROR create");return;}
+ if(!telemetryServer){ANCHOR_DIAG_PRINTLN("TELEMETRY_SERVER_ERROR create");return;}
  telemetryServer.onConnect([](BLEServer&,const BLEConnInfo& conn){
    telemetryPeer=asMac(conn.getAddress());
    telemetryConnected=true;telemetryNotifyConnect=true;
@@ -173,18 +187,18 @@ static void telemetryStartServer(){
    telemetryConnected=false;telemetryNotifyDisconnect=true;telemetryStartAdvertising=true;
  });
  BLEService svc=telemetryServer.createService(SERVICE_UUID);
- if(!svc){Serial.println("TELEMETRY_SERVICE_ERROR");return;}
+ if(!svc){ANCHOR_DIAG_PRINTLN("TELEMETRY_SERVICE_ERROR");return;}
  telemetryNotify=svc.createCharacteristic(TELEMETRY_NOTIFY_UUID,BLEProperty::Read | BLEProperty::Notify,BLEPermission::ReadOpen);
  telemetryWrite=svc.createCharacteristic(TELEMETRY_WRITE_UUID,BLEProperty::Write,BLEPermission::WriteOpen);
- if(!telemetryNotify || !telemetryWrite){Serial.println("TELEMETRY_CHARACTERISTIC_ERROR");return;}
+ if(!telemetryNotify || !telemetryWrite){ANCHOR_DIAG_PRINTLN("TELEMETRY_CHARACTERISTIC_ERROR");return;}
  telemetryNotify.setValue((const uint8_t*)"",1);
  // UART input is unused by EdgeTX in telemetry mode. Reserve FFF7 for future
  // bidirectional support; never inject BLE writes into EdgeTX control/telemetry.
  BTStatus start=telemetryServer.start();
- if(!start){Serial.printf("TELEMETRY_SERVER_START_FAILED %s\n",start.toString());return;}
+ if(!start){ANCHOR_DIAG_PRINTF("TELEMETRY_SERVER_START_FAILED %s\n",start.toString());return;}
  BLEAdvertising adv=BLE.getAdvertising();adv.addServiceUUID(SERVICE_UUID);
  BTStatus status=adv.start();
- Serial.printf("TELEMETRY_ADVERTISING name=%s status=%s\n",radioBluetoothName.c_str(),status.toString());
+ ANCHOR_DIAG_PRINTF("TELEMETRY_ADVERTISING name=%s status=%s\n",radioBluetoothName.c_str(),status.toString());
 }
 // TelemetryViewer Android 1.9.x only recognizes CRSF RADIO_ADDRESS 0xEA,
 // although EdgeTX emits valid telemetry with standard CRSF sync 0xC8.
@@ -246,9 +260,9 @@ static void telemetryDrain(){
 }
 static void replyCentral(){
  if(validAddr(localBtAddr))reply("Central:"+localBtAddr);
- else Serial.println("LOCAL_BT_ADDR unavailable; refusing placeholder");
+ else ANCHOR_DIAG_PRINTLN("LOCAL_BT_ADDR unavailable; refusing placeholder");
 }
-static void uartSwitch(uint32_t baud){Serial1.flush();Serial1.end();Serial1.begin(baud,SERIAL_8N1,RX_PIN,TX_PIN);uartBaud=baud;Serial.printf("UART baud=%lu\n",(unsigned long)baud);}
+static void uartSwitch(uint32_t baud){Serial1.flush();Serial1.end();Serial1.begin(baud,SERIAL_8N1,RX_PIN,TX_PIN);uartBaud=baud;ANCHOR_DIAG_PRINTF("UART baud=%lu\n",(unsigned long)baud);}
 static void onNotify(BLERemoteCharacteristic, const uint8_t* data, size_t len, BLESubscription){
  // Preserve exactly the bytes sent by HT. The original HT firmware writes
  // its checksum byte unescaped (even if it equals 0x7E or 0x7D). EdgeTX
@@ -276,7 +290,7 @@ static void clearConnection(bool emitLost){
  bool old=subscribed;subscribed=false;connectedAnnounced=false;currentPeer="";
  if(workerActive){workerCancel=true;client.cancelConnect();}
  else if(client && client.isConnected())client.disconnect();
- if(emitLost && old){reply("DisConnected");Serial.println("BLE disconnected");}
+ if(emitLost && old){reply("DisConnected");ANCHOR_DIAG_PRINTLN("BLE disconnected");}
  if(packetQueue)xQueueReset(packetQueue);
  lastPacketMs=0;
 }
@@ -320,11 +334,11 @@ static void anchorOtaRoutes(){
       if(!upload.filename.endsWith(".bin") ||
          upload.filename.indexOf("merged")>=0 ||
          !Update.begin(UPDATE_SIZE_UNKNOWN,U_FLASH)) {
-        Serial.println("ANCHOR_OTA_START rejected");
+        ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_START rejected");
         return;
       }
       anchorOtaUploading=true;
-      Serial.printf("ANCHOR_OTA_START file=%s\n",upload.filename.c_str());
+      ANCHOR_DIAG_PRINTF("ANCHOR_OTA_START file=%s\n",upload.filename.c_str());
     }else if(upload.status==UPLOAD_FILE_WRITE){
       if(anchorOtaUploading && !anchorOtaHeaderValid){
         uint32_t descMagic=0;
@@ -334,26 +348,26 @@ static void anchorOtaRoutes(){
         // offset 32. A merged flash image/bootloader does not qualify.
         if(upload.currentSize<36 || upload.buf[0]!=0xE9 ||
            descMagic!=ESP_APP_DESC_MAGIC_WORD){
-          Serial.println("ANCHOR_OTA_BAD_IMAGE not an application binary");
+          ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_BAD_IMAGE not an application binary");
           Update.abort();anchorOtaUploading=false;
         }else anchorOtaHeaderValid=true;
       }
       if(anchorOtaUploading &&
          Update.write(upload.buf,upload.currentSize)!=upload.currentSize){
-        Serial.println("ANCHOR_OTA_WRITE failed");
+        ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_WRITE failed");
         Update.abort();anchorOtaUploading=false;
       }
     }else if(upload.status==UPLOAD_FILE_END){
       if(anchorOtaUploading && Update.end(true)){
         anchorOtaSuccess=true;
-        Serial.printf("ANCHOR_OTA_VERIFIED bytes=%u\n",(unsigned)upload.totalSize);
+        ANCHOR_DIAG_PRINTF("ANCHOR_OTA_VERIFIED bytes=%u\n",(unsigned)upload.totalSize);
       }else {
         Update.abort();
-        Serial.println("ANCHOR_OTA_VERIFY failed");
+        ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_VERIFY failed");
       }
     }else if(upload.status==UPLOAD_FILE_ABORTED){
       Update.abort();anchorOtaUploading=false;
-      Serial.println("ANCHOR_OTA_ABORTED");
+      ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_ABORTED");
     }
   });
   anchorOtaWeb.onNotFound([](){
@@ -378,13 +392,13 @@ static void anchorOtaBegin(){
   subscribed=false;telemetryConnected=false;
   WiFi.mode(WIFI_AP);
   if(!WiFi.softAP(ANCHOR_OTA_SSID,ANCHOR_OTA_PASS)){
-    Serial.println("ANCHOR_OTA_AP_FAILED restarting");
+    ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_AP_FAILED restarting");
     ESP.restart();
     return;
   }
   anchorOtaRoutes();anchorOtaWeb.begin();
   anchorOtaActive=true;anchorOtaLastActivity=millis();
-  Serial.printf("ANCHOR_OTA_READY ssid=%s ip=%s\n",ANCHOR_OTA_SSID,
+  ANCHOR_DIAG_PRINTF("ANCHOR_OTA_READY ssid=%s ip=%s\n",ANCHOR_OTA_SSID,
     WiFi.softAPIP().toString().c_str());
 }
 static void anchorOtaPoll(){
@@ -398,10 +412,10 @@ static void anchorOtaPoll(){
     if((uint32_t)(millis()-anchorOtaDisableHighSince)>=100){
       if(anchorOtaUploading){
         if(!anchorOtaCancelDeferred)
-          Serial.println("ANCHOR_OTA_CANCEL deferred during upload");
+          ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_CANCEL deferred during upload");
         anchorOtaCancelDeferred=true;
       }else{
-        Serial.println("ANCHOR_OTA_CANCEL PH11 HIGH; restart into Bluetooth");
+        ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_CANCEL PH11 HIGH; restart into Bluetooth");
         Serial.flush();
         ESP.restart();
       }
@@ -409,7 +423,7 @@ static void anchorOtaPoll(){
   }else anchorOtaDisableHighSince=0;
   if(anchorOtaCancelDeferred && !anchorOtaUploading &&
      !anchorOtaRestartAt){
-    Serial.println("ANCHOR_OTA_CANCEL deferred session complete");
+    ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_CANCEL deferred session complete");
     Serial.flush();
     ESP.restart();
   }
@@ -429,7 +443,7 @@ static void anchorOtaPoll(){
   if((uint32_t)(millis()-anchorOtaLastActivity)>
        (anchorOtaUploading ? 120000UL : ANCHOR_OTA_IDLE_MS)){
     if(anchorOtaUploading){Update.abort();anchorOtaUploading=false;}
-    Serial.println("ANCHOR_OTA_IDLE_TIMEOUT restarting");
+    ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_IDLE_TIMEOUT restarting");
     ESP.restart();
   }
 }
@@ -467,7 +481,7 @@ static void radioOff(){
   awaitingHostInit=true;
   initStage=INIT_WAIT_BAUD;initStageAt=0;
   if(uartBaud!=57600)uartSwitch(57600);
-  Serial.printf("RADIO_OFF PH11=HIGH BLE=%d stops=%lu\n",bleReady,(unsigned long)bleStops);
+  ANCHOR_DIAG_PRINTF("RADIO_OFF PH11=HIGH BLE=%d stops=%lu\n",bleReady,(unsigned long)bleStops);
 }
 static void radioOn(){
   if(anchorOtaActive || anchorOtaPending)return;
@@ -479,24 +493,24 @@ static void radioOn(){
   uartLine="";awaitingHostInit=true;fallbackAllowed=false;
   initStart();
   bleStartPending=false;roleAckRemaining=0;
-  Serial.println("RADIO_ON PH11=LOW awaiting UART handshake at 57600");
+  ANCHOR_DIAG_PRINTLN("RADIO_ON PH11=LOW awaiting UART handshake at 57600");
 }
 static void startBLE(){
  if(!enEnabled || bleReady || workerActive || deferredRadioOff)return;
  bleStartPending=false;
    BTStatus result=BLE.begin(telemetryRole ? radioBluetoothName.c_str() : "ANCHOR");bleReady=(bool)result;
    if(bleReady){
-     ++bleStarts;Serial.printf("BLE_STARTED role=%s count=%lu\n",telemetryRole?"peripheral":"central",(unsigned long)bleStarts);
+     ++bleStarts;ANCHOR_DIAG_PRINTF("BLE_STARTED role=%s count=%lu\n",telemetryRole?"peripheral":"central",(unsigned long)bleStarts);
      if(telemetryRole)telemetryStartServer();
    }
- else {Serial.printf("BLE_START_FAILED status=%s\n",result.toString());bleStartPending=true;bleStartAt=millis()+1500;}
+ else {ANCHOR_DIAG_PRINTF("BLE_START_FAILED status=%s\n",result.toString());bleStartPending=true;bleStartAt=millis()+1500;}
 }
 static void readEnable(){
  int raw=digitalRead(EN_MONITOR_PIN);
  if(raw!=enCandidate){enCandidate=raw;enCandidateAt=millis();}
  if(raw!=enLast && (uint32_t)(millis()-enCandidateAt)>=50){
   enLast=raw;++enTransitions;enChangedAt=millis();
-  Serial.printf("PH11_CHANGE level=%d transitions=%lu uptime=%lu\n",raw,(unsigned long)enTransitions,(unsigned long)enChangedAt);
+  ANCHOR_DIAG_PRINTF("PH11_CHANGE level=%d transitions=%lu uptime=%lu\n",raw,(unsigned long)enTransitions,(unsigned long)enChangedAt);
   enEnabled=(raw==LOW);
   if(enEnabled)radioOn();else radioOff();
  }
@@ -512,10 +526,10 @@ static bool runScan(bool reportUART, const String &peer=String()){
  }
  BLEScan scan=BLE.getScan();scan.setActiveScan(true);scan.setInterval(100);scan.setWindow(70);
  BTStatus st=scan.start(3500);
- if(!st){Serial.printf("SCAN_START_FAILED %s\n",st.toString());if(reportUART)reply("ERROR");return false;}
+ if(!st){ANCHOR_DIAG_PRINTF("SCAN_START_FAILED %s\n",st.toString());if(reportUART)reply("ERROR");return false;}
  scanActive=true;scanReportUART=reportUART;scanRequestedPeer=peer;
  scanDeadline=millis()+4700;++scanStarts;
- Serial.printf("SCAN_START async peer=%s report=%d count=%lu\n",peer.c_str(),reportUART,(unsigned long)scanStarts);
+ ANCHOR_DIAG_PRINTF("SCAN_START async peer=%s report=%d count=%lu\n",peer.c_str(),reportUART,(unsigned long)scanStarts);
  return true;
 }
 static void pollScan(){
@@ -525,7 +539,7 @@ static void pollScan(){
  if(scan.isScanning() && !expired)return;
  if(scan.isScanning()){
   scan.stop();++scanCancels;
-  Serial.println("SCAN_TIMEOUT forcibly stopped");
+  ANCHOR_DIAG_PRINTLN("SCAN_TIMEOUT forcibly stopped");
  }
  scanActive=false;++scanCompletes;
  lastScan=scan.getResults();
@@ -535,15 +549,15 @@ static void pollScan(){
   String addr=canonical(dev.getAddress().toString());
   if(!validAddr(addr))continue;
   if(scanReportUART)reply("OK+DISC:"+addr);
-  Serial.printf("SCAN_DEVICE %s type=%d rssi=%d name=%s svc=%d\n",addr.c_str(),(int)dev.getAddressType(),dev.getRSSI(),dev.getName().c_str(),dev.isAdvertisingService(SERVICE_UUID));
+  ANCHOR_DIAG_PRINTF("SCAN_DEVICE %s type=%d rssi=%d name=%s svc=%d\n",addr.c_str(),(int)dev.getAddressType(),dev.getRSSI(),dev.getName().c_str(),dev.isAdvertisingService(SERVICE_UUID));
   if(validAddr(scanRequestedPeer) && addr==scanRequestedPeer)found=true;
  }
  if(scanReportUART)reply("OK+DISCE");
- Serial.printf("SCAN_DONE count=%lu target=%s found=%d\n",(unsigned long)scanCompletes,scanRequestedPeer.c_str(),found);
+ ANCHOR_DIAG_PRINTF("SCAN_DONE count=%lu target=%s found=%d\n",(unsigned long)scanCompletes,scanRequestedPeer.c_str(),found);
  if(validAddr(scanRequestedPeer)){
   if(found){selectedPeer=scanRequestedPeer;requestConnect=true;}
   else {
-   Serial.println("BLE peer not advertising; retry scheduled");
+   ANCHOR_DIAG_PRINTLN("BLE peer not advertising; retry scheduled");
    if(validAddr(savedPeer) && savedPeer==scanRequestedPeer){retryAt=millis()+4000;autoReconnectPending=true;}
    else reply("ERROR");
   }
@@ -557,7 +571,7 @@ static bool connectPeer(String mac,bool quiet=false){
  for(const BLEAdvertisedDevice& dev:lastScan){
   if(canonical(dev.getAddress().toString())==mac){target=dev;break;}
  }
- if(!target){Serial.printf("BLE peer %s not cached: async discovery\n",mac.c_str());return runScan(false,mac);}
+ if(!target){ANCHOR_DIAG_PRINTF("BLE peer %s not cached: async discovery\n",mac.c_str());return runScan(false,mac);}
  if(client && client.isConnected())client.disconnect();
  client=BLE.createClient();if(!client)return false;
  workerPeer=mac;workerAddrType=(uint8_t)target.getAddressType();
@@ -573,13 +587,13 @@ static bool connectPeer(String mac,bool quiet=false){
    bool ok=false;
    if(!workerCancel && enEnabled){
     BTStatus st=client.connect(address,7000);
-    if(!st)Serial.printf("WORKER_CONNECT_FAILED %s\n",st.toString());
+    if(!st)ANCHOR_DIAG_PRINTF("WORKER_CONNECT_FAILED %s\n",st.toString());
     else if(!workerCancel && enEnabled && client.discoverServices()){
      BLERemoteService svc=client.getService(SERVICE_UUID);
      if(svc){BLERemoteCharacteristic ch=svc.getCharacteristic(TRAINER_UUID);
        if(ch && ch.canNotify() && !workerCancel && enEnabled){
          st=ch.subscribe(BLESubscription::Notify,onNotify);ok=(bool)st;
-         if(!ok)Serial.printf("WORKER_SUBSCRIBE_FAILED %s\n",st.toString());
+         if(!ok)ANCHOR_DIAG_PRINTF("WORKER_SUBSCRIBE_FAILED %s\n",st.toString());
        }
      }
     }
@@ -589,8 +603,8 @@ static bool connectPeer(String mac,bool quiet=false){
    __atomic_store_n(&workerDone,true,__ATOMIC_RELEASE);
    vTaskDelete(nullptr);
  },"ble-connect",8192,addr,1,nullptr);
- if(started!=pdPASS){delete addr;workerActive=false;Serial.println("WORKER_START_FAILED");return false;}
- Serial.printf("WORKER_START peer=%s type=%d\n",mac.c_str(),workerAddrType);
+ if(started!=pdPASS){delete addr;workerActive=false;ANCHOR_DIAG_PRINTLN("WORKER_START_FAILED");return false;}
+ ANCHOR_DIAG_PRINTF("WORKER_START peer=%s type=%d\n",mac.c_str(),workerAddrType);
  return true;
 }
 static void pollWorker(){
@@ -598,7 +612,7 @@ static void pollWorker(){
  if(!__atomic_load_n(&workerDone,__ATOMIC_ACQUIRE)){
   if(!enEnabled && !workerCancel){workerCancel=true;client.cancelConnect();}
   if((uint32_t)(millis()-workerStartedMs)>11000 && !workerCancel){
-   workerCancel=true;client.cancelConnect();Serial.println("WORKER_DEADLINE_CANCEL");
+   workerCancel=true;client.cancelConnect();ANCHOR_DIAG_PRINTLN("WORKER_DEADLINE_CANCEL");
   }
   return;
  }
@@ -614,12 +628,12 @@ static void pollWorker(){
    savedPeer=workerPeer;savedAddrType=workerAddrType;
   }
   linkTuneStage=1;linkTuneAt=millis()+400;
-  reply("Connected:"+workerPeer);Serial.printf("WORKER_CONNECTED %s\n",workerPeer.c_str());
+  reply("Connected:"+workerPeer);ANCHOR_DIAG_PRINTF("WORKER_CONNECTED %s\n",workerPeer.c_str());
  }else if(enEnabled){
   linkTuneStage=0;
   ++connectFailures;
   if(validAddr(savedPeer)){retryAt=millis()+4000;autoReconnectPending=true;}
-  Serial.println("WORKER_NOT_CONNECTED");
+  ANCHOR_DIAG_PRINTLN("WORKER_NOT_CONNECTED");
  }
  if(deferredRadioOff){
   deferredRadioOff=false;
@@ -628,7 +642,7 @@ static void pollWorker(){
   }else{
    // A brief EdgeTX reset toggled PH11 back LOW before cancellation ended.
    // BLE stack is still allocated; allow fresh AT handshake to proceed.
-   Serial.println("WORKER_RESET_RECOVERY");
+   ANCHOR_DIAG_PRINTLN("WORKER_RESET_RECOVERY");
   }
  }
 }
@@ -640,14 +654,14 @@ static void pollLinkTune(){
  if(linkTuneStage==1){
    const BLEConnParams params={6,6,0,200}; // 7.5ms matched low-latency HT link
    BTStatus st=client.updateConnParams(params);
-   Serial.printf("LINK_TUNE_INTERVAL request=7.5ms status=%s\n",st.toString());
+   ANCHOR_DIAG_PRINTF("LINK_TUNE_INTERVAL request=7.5ms status=%s\n",st.toString());
    if(st)++linkTuneSuccess;else ++linkTuneErrors;
    linkTuneStage=2;linkTuneAt=millis()+1200;
  }else{
    // 2M PHY is a preference, not required for our legacy GATT payload.
    // The stack may stay on 1M if either peer cannot negotiate 2M.
    BTStatus st=client.setPhy(BLEPhy::PHY_2M,BLEPhy::PHY_2M);
-   Serial.printf("LINK_TUNE_PHY request=2M status=%s\n",st.toString());
+   ANCHOR_DIAG_PRINTF("LINK_TUNE_PHY request=2M status=%s\n",st.toString());
    if(st)++linkTuneSuccess;else ++linkTuneErrors;
    linkTuneStage=0;
  }
@@ -663,11 +677,11 @@ static void at(const String& cmd){
    if(initStage<INIT_WAIT_ROLE){reply("ERROR");return;}
    reply("OK+OTA");Serial1.flush();
    anchorOtaPending=true;
-   Serial.println("ANCHOR_OTA_REQUEST accepted");
+   ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_REQUEST accepted");
    return;
  }
  if(anchorOtaActive || anchorOtaPending)return;
- Serial.printf("UART> %s\n",cmd.c_str());
+ ANCHOR_DIAG_PRINTF("UART> %s\n",cmd.c_str());
  if(cmd=="AT+BAUD4"){
   awaitingHostInit=false;fallbackAllowed=false;wakeRecoveryPending=false;
   initBootFallbackActive=false;
@@ -684,7 +698,7 @@ static void at(const String& cmd){
       prefs.putString("btName",radioBluetoothName);
     }
   }else{
-    Serial.println("BT_NAME ignored empty or overlong AT+NAME payload");
+    ANCHOR_DIAG_PRINTLN("BT_NAME ignored empty or overlong AT+NAME payload");
   }
   initAdvance(INIT_WAIT_POWER);
   reply("OK+Name:"+requestedName);replyCentral();return;
@@ -703,7 +717,7 @@ static void at(const String& cmd){
    roleAckRemaining=0;
    reply("OK+Role:0");replyPeripheral();
    if(!bleReady){bleStartPending=true;bleStartAt=millis()+250;}
-   Serial.println("ROLE0 telemetry mirror peripheral selected");
+   ANCHOR_DIAG_PRINTLN("ROLE0 telemetry mirror peripheral selected");
    return;
  }
  if(cmd=="AT+ROLE1"){
@@ -732,13 +746,13 @@ static void at(const String& cmd){
     return;
   }
   String requestedPeer=canonical(cmd.substring(6));
-  if(!validAddr(requestedPeer)){reply("ERROR");Serial.println("AT+CON invalid peer address");return;}
+  if(!validAddr(requestedPeer)){reply("ERROR");ANCHOR_DIAG_PRINTLN("AT+CON invalid peer address");return;}
   // EdgeTX may request a reconnect after our autonomous recovery already
   // restored the exact peer. Never tear down the established connection.
   if(subscribed && client && client.isConnected() && currentPeer==requestedPeer){
     autoReconnectPending=false;requestConnect=false;
     reply("OK+CONNA");reply("Connected:"+requestedPeer);
-    Serial.println("AT+CON already connected; preserved existing BLE session");return;
+    ANCHOR_DIAG_PRINTLN("AT+CON already connected; preserved existing BLE session");return;
   }
   selectedPeer=requestedPeer;autoReconnectPending=false;
   reply("OK+CONNA");reply("Connecting to:"+selectedPeer);requestConnect=true;return;
@@ -750,129 +764,131 @@ static void at(const String& cmd){
  if(cmd=="AT"){reply("OK");return;}
  reply("ERROR");
 }
+#if ANCHOR_DEBUG
 static void usb(const String& cmd){
  if(cmd=="DROP"){
-  if(!enEnabled){Serial.println("RADIO_OFF: DROP ignored");return;}
+  if(!enEnabled){ANCHOR_DIAG_PRINTLN("RADIO_OFF: DROP ignored");return;}
   bool was=subscribed;clearConnection(was);if(validAddr(savedPeer)){autoReconnectPending=true;retryAt=millis()+2000;}
-  Serial.printf("INJECTED_DISCONNECT previouslyConnected=%d retryMs=2000\n",was);return;
+  ANCHOR_DIAG_PRINTF("INJECTED_DISCONNECT previouslyConnected=%d retryMs=2000\n",was);return;
  }
  if(cmd=="RESYNC"){
   if(enEnabled){
     requestEdgeTxReset();initLastResetAt=millis();initResetPending=true;++initResyncCount;
-    Serial.println("RESYNC sent (manual diagnostics)");
+    ANCHOR_DIAG_PRINTLN("RESYNC sent (manual diagnostics)");
   }
-  else Serial.println("RESYNC suppressed: BLE is active or disabled");
+  else ANCHOR_DIAG_PRINTLN("RESYNC suppressed: BLE is active or disabled");
   return;
  }
- if(cmd=="SYNCROLE"){if(enEnabled){replyCentral();Serial.println("SYNCROLE sent");}return;}
- if(cmd=="ADDR"){Serial.printf("LOCAL_BT_ADDR %s BLE=%d\n",localBtAddr.c_str(),bleReady);if(bleReady)Serial.printf("BLE_ACTUAL_ADDR %s\n",BLE.getAddress().toString().c_str());return;}
+ if(cmd=="SYNCROLE"){if(enEnabled){replyCentral();ANCHOR_DIAG_PRINTLN("SYNCROLE sent");}return;}
+ if(cmd=="ADDR"){ANCHOR_DIAG_PRINTF("LOCAL_BT_ADDR %s BLE=%d\n",localBtAddr.c_str(),bleReady);if(bleReady)ANCHOR_DIAG_PRINTF("BLE_ACTUAL_ADDR %s\n",BLE.getAddress().toString().c_str());return;}
  if(cmd=="BLEFAST"){
-   if(!subscribed || !client || !client.isConnected()){Serial.println("BLEFAST disconnected");return;}
+   if(!subscribed || !client || !client.isConnected()){ANCHOR_DIAG_PRINTLN("BLEFAST disconnected");return;}
    BLEConnParams p={12,12,0,200}; // 15ms interval, 0 latency, 2s supervision
    BTStatus st=client.updateConnParams(p);
-   Serial.printf("BLEFAST request interval=15ms latency=0 timeout=2000ms result=%s (asynchronous)\n",st.toString());
+   ANCHOR_DIAG_PRINTF("BLEFAST request interval=15ms latency=0 timeout=2000ms result=%s (asynchronous)\n",st.toString());
    return;
  }
  if(cmd=="BLE7" || cmd=="BLE15"){
-   if(!subscribed || !client || !client.isConnected()){Serial.println("BLE interval test: disconnected");return;}
+   if(!subscribed || !client || !client.isConnected()){ANCHOR_DIAG_PRINTLN("BLE interval test: disconnected");return;}
    const uint16_t units=(cmd=="BLE7") ? 6 : 12;
    const BLEConnParams params={units,units,0,200};
    const BTStatus result=client.updateConnParams(params);
-   Serial.printf("BLE_INTERVAL_TEST requestedUnits=%u requestedMs=%u.%02u status=%s (asynchronous)\n",
+   ANCHOR_DIAG_PRINTF("BLE_INTERVAL_TEST requestedUnits=%u requestedMs=%u.%02u status=%s (asynchronous)\n",
                  (unsigned)units,(unsigned)(units*125/100),(unsigned)(units*125%100),result.toString());
    return;
  }
 
  if(cmd=="BLE2M"){
-   if(!subscribed || !client || !client.isConnected()){Serial.println("BLE2M disconnected");return;}
+   if(!subscribed || !client || !client.isConnected()){ANCHOR_DIAG_PRINTLN("BLE2M disconnected");return;}
    BTStatus st=client.setPhy(BLEPhy::PHY_2M,BLEPhy::PHY_2M);
-   Serial.printf("BLE2M request result=%s (verify with BLEINFO)\n",st.toString());
+   ANCHOR_DIAG_PRINTF("BLE2M request result=%s (verify with BLEINFO)\n",st.toString());
    return;
  }
  if(cmd=="BLEINFO"){
-   Serial.printf("BLEINFO tuneStage=%u tuneSuccess=%lu tuneErrors=%lu\n",
+   ANCHOR_DIAG_PRINTF("BLEINFO tuneStage=%u tuneSuccess=%lu tuneErrors=%lu\n",
      (unsigned)linkTuneStage,(unsigned long)linkTuneSuccess,(unsigned long)linkTuneErrors);
-   if(!subscribed || !client || !client.isConnected()){Serial.println("BLEINFO disconnected");return;}
+   if(!subscribed || !client || !client.isConnected()){ANCHOR_DIAG_PRINTLN("BLEINFO disconnected");return;}
    BLEConnInfo info=client.getConnInfo();
-   Serial.printf("BLEINFO mtu=%u intervalUnits=%u latency=%u supervisionUnits=%u rssi=%d (Bluedroid interval may be unavailable)\n",
+   ANCHOR_DIAG_PRINTF("BLEINFO mtu=%u intervalUnits=%u latency=%u supervisionUnits=%u rssi=%d (Bluedroid interval may be unavailable)\n",
      (unsigned)info.getMTU(),(unsigned)info.getInterval(),(unsigned)info.getLatency(),(unsigned)info.getSupervisionTimeout(),(int)info.getRSSI());
    BLEPhy tx=BLEPhy::PHY_1M,rx=BLEPhy::PHY_1M;
    BTStatus st=client.getPhy(tx,rx);
-   Serial.printf("BLEINFO phyStatus=%s txPhy=%u rxPhy=%u\n",st.toString(),(unsigned)tx,(unsigned)rx);
+   ANCHOR_DIAG_PRINTF("BLEINFO phyStatus=%s txPhy=%u rxPhy=%u\n",st.toString(),(unsigned)tx,(unsigned)rx);
    return;
  }
- if(cmd=="EN"){Serial.printf("PH11 D0/GPIO1=%d transitions=%lu lastChangeMs=%lu enEnabled=%d BLE=%d starts=%lu stops=%lu\n",digitalRead(EN_MONITOR_PIN),(unsigned long)enTransitions,(unsigned long)enChangedAt,enEnabled,bleReady,(unsigned long)bleStarts,(unsigned long)bleStops);return;}
+ if(cmd=="EN"){ANCHOR_DIAG_PRINTF("PH11 D0/GPIO1=%d transitions=%lu lastChangeMs=%lu enEnabled=%d BLE=%d starts=%lu stops=%lu\n",digitalRead(EN_MONITOR_PIN),(unsigned long)enTransitions,(unsigned long)enChangedAt,enEnabled,bleReady,(unsigned long)bleStarts,(unsigned long)bleStops);return;}
  if(cmd=="PROFILE"){
-   Serial.printf("PROFILE rx=%lu superseded=%lu uartPackets=%lu uartBytes=%lu writeMaxUs=%lu mainLoops=%lu mainGapMaxUs=%lu mainGapsOver10ms=%lu\n",
+   ANCHOR_DIAG_PRINTF("PROFILE rx=%lu superseded=%lu uartPackets=%lu uartBytes=%lu writeMaxUs=%lu mainLoops=%lu mainGapMaxUs=%lu mainGapsOver10ms=%lu\n",
      (unsigned long)notifications,(unsigned long)superseded,(unsigned long)uartPackets,(unsigned long)uartBytes,
      (unsigned long)uartWriteMaxUs,(unsigned long)mainLoops,(unsigned long)mainGapMaxUs,(unsigned long)mainGapsOver10ms);
-   Serial.printf("PROFILE_QUEUE maxDepth=%lu maxRxToUartUs=%lu avgRxToUartUs=%lu\n",
+   ANCHOR_DIAG_PRINTF("PROFILE_QUEUE maxDepth=%lu maxRxToUartUs=%lu avgRxToUartUs=%lu\n",
      (unsigned long)maxQueueDepth,(unsigned long)maxRxToUartUs,
      (unsigned long)(uartPackets?totalRxToUartUs/uartPackets:0));
    return;
  }
  if(cmd=="OTA"){at("AT+OTA");return;}
  if(cmd=="TELEMSTART"){
-   if(!enEnabled){Serial.println("TELEMSTART refused, BT enable GPIO inactive");return;}
+   if(!enEnabled){ANCHOR_DIAG_PRINTLN("TELEMSTART refused, BT enable GPIO inactive");return;}
    telemetryForcePending=true;autoReconnectPending=false;requestScan=false;requestConnect=false;
    if(workerActive){workerCancel=true;client.cancelConnect();}
-   Serial.println("TELEMSTART pending controlled BLE role reinitialization");
+   ANCHOR_DIAG_PRINTLN("TELEMSTART pending controlled BLE role reinitialization");
    return;
  }
  if(cmd=="TELEMCOMPAT"){
    telemetryViewerCompat=true;telemetryCrsfCount=0;
-   Serial.println("TELEMCOMPAT enabled: CRC-validated CRSF 0xC8 -> 0xEA for TelemetryViewer");return;
+   ANCHOR_DIAG_PRINTLN("TELEMCOMPAT enabled: CRC-validated CRSF 0xC8 -> 0xEA for TelemetryViewer");return;
  }
  if(cmd=="TELEMRAW"){
    telemetryViewerCompat=false;telemetryCrsfCount=0;
-   Serial.println("TELEMRAW enabled: no CRSF address translation");return;
+   ANCHOR_DIAG_PRINTLN("TELEMRAW enabled: no CRSF address translation");return;
  }
  if(cmd=="TELEMTEST"){
    if(!telemetryRole || !telemetryConnected || !telemetryNotify ||
        telemetryNotify.getSubscribedCount()==0){
-     Serial.println("TELEMTEST rejected: no subscribed BLE telemetry client");
+     ANCHOR_DIAG_PRINTLN("TELEMTEST rejected: no subscribed BLE telemetry client");
      return;
    }
    static const char probe[]="C5_TELEM_TEST_v1_ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789";
    for(size_t i=0;i<sizeof(probe)-1;i++)telemetryPush((uint8_t)probe[i]);
-   Serial.printf("TELEMTEST queued=%u\n",(unsigned)(sizeof(probe)-1));
+   ANCHOR_DIAG_PRINTF("TELEMTEST queued=%u\n",(unsigned)(sizeof(probe)-1));
    return;
  }
  if(cmd=="TELEMSTATUS"){
-  Serial.printf("TELEM role=%d connected=%d advertising=%d BLE=%d subscribed=%u uartBytes=%lu bleBytes=%lu blePackets=%lu dropped=%lu busy=%lu queued=%u maxDepth=%lu peer=%s\n",
+  ANCHOR_DIAG_PRINTF("TELEM role=%d connected=%d advertising=%d BLE=%d subscribed=%u uartBytes=%lu bleBytes=%lu blePackets=%lu dropped=%lu busy=%lu queued=%u maxDepth=%lu peer=%s\n",
     telemetryRole,telemetryConnected,(int)(bleReady && BLE.getAdvertising().isAdvertising()),bleReady,(unsigned)(telemetryNotify?telemetryNotify.getSubscribedCount():0),
     (unsigned long)telemetryUartBytes,(unsigned long)telemetryBleBytes,(unsigned long)telemetryBlePackets,
     (unsigned long)telemetryDrops,(unsigned long)telemetryNotifyBusy,
     (unsigned)telemetryDepth(),(unsigned long)telemetryMaxDepth,telemetryPeer.c_str());
-  Serial.printf("TELEM noSubscriberDropped=%lu sendFailures=%lu savedRole=%s\n",
+  ANCHOR_DIAG_PRINTF("TELEM noSubscriberDropped=%lu sendFailures=%lu savedRole=%s\n",
      (unsigned long)telemetryNoSubscriberDrops,(unsigned long)telemetrySendFailures,
      persistedTelemetryRole?"telemetry":"trainer");
-  Serial.printf("TELEM CRSF-compat=%d converted=%lu invalid=%lu pending=%u\n",
+  ANCHOR_DIAG_PRINTF("TELEM CRSF-compat=%d converted=%lu invalid=%lu pending=%u\n",
     telemetryViewerCompat,(unsigned long)telemetryCrsfConverted,
     (unsigned long)telemetryCrsfInvalid,(unsigned)telemetryCrsfCount);return;
  }
  if(cmd=="STATUS"){
-  Serial.printf("WORKER active=%d done=%d cancel=%d connected=%d failures=%lu cancels=%lu age=%lu\n",workerActive,workerDone,workerCancel,subscribed,(unsigned long)connectFailures,(unsigned long)connectCancels,(unsigned long)(workerActive?millis()-workerStartedMs:0));
-  Serial.printf("LINK maxGapMs=%lu gapsOver100ms=%lu malformed=%lu stalls=%lu\n",(unsigned long)maxGapMs,(unsigned long)gapsOver100Ms,(unsigned long)malformedNotifications,(unsigned long)linkStalls);
-  Serial.printf("POWER wakeFromDeep=%d recoveryPending=%d recoveryAttempts=%lu offSince=%lu sleepHighMs=%lu\n",deepSleepWake,wakeRecoveryPending,(unsigned long)recoveryAttempts,(unsigned long)offSince,(unsigned long)DEEP_SLEEP_HIGH_MS);
-  Serial.printf("INIT stage=%u ageMs=%lu complete=%d bootFallback=%d resyncs=%lu retryUsed=%u/%u pending=%d lastResetMs=%lu\n",
+  ANCHOR_DIAG_PRINTF("WORKER active=%d done=%d cancel=%d connected=%d failures=%lu cancels=%lu age=%lu\n",workerActive,workerDone,workerCancel,subscribed,(unsigned long)connectFailures,(unsigned long)connectCancels,(unsigned long)(workerActive?millis()-workerStartedMs:0));
+  ANCHOR_DIAG_PRINTF("LINK maxGapMs=%lu gapsOver100ms=%lu malformed=%lu stalls=%lu\n",(unsigned long)maxGapMs,(unsigned long)gapsOver100Ms,(unsigned long)malformedNotifications,(unsigned long)linkStalls);
+  ANCHOR_DIAG_PRINTF("POWER wakeFromDeep=%d recoveryPending=%d recoveryAttempts=%lu offSince=%lu sleepHighMs=%lu\n",deepSleepWake,wakeRecoveryPending,(unsigned long)recoveryAttempts,(unsigned long)offSince,(unsigned long)DEEP_SLEEP_HIGH_MS);
+  ANCHOR_DIAG_PRINTF("INIT stage=%u ageMs=%lu complete=%d bootFallback=%d resyncs=%lu retryUsed=%u/%u pending=%d lastResetMs=%lu\n",
    (unsigned)initStage,(unsigned long)(initStageAt?millis()-initStageAt:0),initStage==INIT_COMPLETE,
    initBootFallbackActive,(unsigned long)initResyncCount,(unsigned)initRetryBudgetUsed,(unsigned)INIT_MAX_RETRIES,
    initResetPending,(unsigned long)initLastResetAt);
-  Serial.printf("SCAN_STATE active=%d report=%d starts=%lu completes=%lu cancels=%lu pendingPeer=%s\n",scanActive,scanReportUART,(unsigned long)scanStarts,(unsigned long)scanCompletes,(unsigned long)scanCancels,scanRequestedPeer.c_str());
-  Serial.printf("STATE BLE=%d UART=%lu subscribed=%d realPeer=%s savedPeer=%s type=%u notifications=%lu dropped=%lu superseded=%lu lastAge=%lu\n",bleReady,(unsigned long)uartBaud,subscribed,currentPeer.c_str(),savedPeer.c_str(),savedAddrType,(unsigned long)notifications,(unsigned long)dropped,(unsigned long)superseded,(unsigned long)(lastPacketMs?millis()-lastPacketMs:0));return;
+  ANCHOR_DIAG_PRINTF("SCAN_STATE active=%d report=%d starts=%lu completes=%lu cancels=%lu pendingPeer=%s\n",scanActive,scanReportUART,(unsigned long)scanStarts,(unsigned long)scanCompletes,(unsigned long)scanCancels,scanRequestedPeer.c_str());
+  ANCHOR_DIAG_PRINTF("STATE BLE=%d UART=%lu subscribed=%d realPeer=%s savedPeer=%s type=%u notifications=%lu dropped=%lu superseded=%lu lastAge=%lu\n",bleReady,(unsigned long)uartBaud,subscribed,currentPeer.c_str(),savedPeer.c_str(),savedAddrType,(unsigned long)notifications,(unsigned long)dropped,(unsigned long)superseded,(unsigned long)(lastPacketMs?millis()-lastPacketMs:0));return;
  }
- if(cmd=="SCAN"){if(enEnabled){requestScan=true;scanRequestReportUART=false;}else Serial.println("RADIO_OFF: SCAN blocked");return;}
- if(cmd.startsWith("CONNECT ")){if(!enEnabled){Serial.println("RADIO_OFF: CONNECT blocked");return;}selectedPeer=canonical(cmd.substring(8));if(!validAddr(selectedPeer)){Serial.println("Bad peer address");return;}requestConnect=true;return;}
+ if(cmd=="SCAN"){if(enEnabled){requestScan=true;scanRequestReportUART=false;}else ANCHOR_DIAG_PRINTLN("RADIO_OFF: SCAN blocked");return;}
+ if(cmd.startsWith("CONNECT ")){if(!enEnabled){ANCHOR_DIAG_PRINTLN("RADIO_OFF: CONNECT blocked");return;}selectedPeer=canonical(cmd.substring(8));if(!validAddr(selectedPeer)){ANCHOR_DIAG_PRINTLN("Bad peer address");return;}requestConnect=true;return;}
  if(cmd=="FORGET"){
   prefs.remove("peer");prefs.remove("addrtype");savedPeer="";savedAddrType=0;
   selectedPeer="";requestConnect=false;autoReconnectPending=false;
-  Serial.println("NVS peer removed");return;}
+  ANCHOR_DIAG_PRINTLN("NVS peer removed");return;}
  if(cmd=="RESETUART"){uartSwitch(57600);return;}
- if(cmd=="UART115200"){if(!enEnabled){Serial.println("RADIO_OFF: UART115200 blocked");return;}awaitingHostInit=false;uartSwitch(115200);return;}
- if(cmd=="REBOOT"){Serial.println("C5 controlled reboot");Serial.flush();ESP.restart();return;}
- Serial.println("Commands: BLEINFO BLEFAST BLE7 BLE15 BLE2M STATUS EN ADDR RESYNC SYNCROLE SCAN CONNECT <12hex> DROP FORGET RESETUART UART115200 REBOOT");
+ if(cmd=="UART115200"){if(!enEnabled){ANCHOR_DIAG_PRINTLN("RADIO_OFF: UART115200 blocked");return;}awaitingHostInit=false;uartSwitch(115200);return;}
+ if(cmd=="REBOOT"){ANCHOR_DIAG_PRINTLN("C5 controlled reboot");Serial.flush();ESP.restart();return;}
+ ANCHOR_DIAG_PRINTLN("Commands: BLEINFO BLEFAST BLE7 BLE15 BLE2M STATUS EN ADDR RESYNC SYNCROLE SCAN CONNECT <12hex> DROP FORGET RESETUART UART115200 REBOOT");
 }
+#endif // ANCHOR_DEBUG: USB bench command handler
 void setup(){
  Serial.begin(115200);readLocalBtAddr();pinMode(EN_MONITOR_PIN,INPUT);enLast=digitalRead(EN_MONITOR_PIN);enCandidate=enLast;enCandidateAt=millis();enChangedAt=millis();enEnabled=(enLast==LOW);Serial1.begin(57600,SERIAL_8N1,RX_PIN,TX_PIN);
  packetQueue=xQueueCreate(4,sizeof(Packet));
@@ -891,10 +907,10 @@ void setup(){
   deepSleepWake=esp_sleep_get_wakeup_cause()==ESP_SLEEP_WAKEUP_EXT1;
   if(deepSleepWake){wakeRecoveryPending=true;wakeRecoveryAt=millis()+1100;fallbackAllowed=false;}
   else fallbackAllowed=true;
- }else Serial.println("RADIO_OFF at boot: BLE not initialized");
+ }else ANCHOR_DIAG_PRINTLN("RADIO_OFF at boot: BLE not initialized");
  if(!enEnabled)offSince=millis();
- Serial.printf("C5_SLEEP_TEST WAKE_CAUSES=0x%08lX\n",(unsigned long)esp_sleep_get_wakeup_causes());
- Serial.printf("ANCHOR_C5 BLE=%d savedPeer=%s factoryBaud=%lu\n",bleReady,savedPeer.c_str(),(unsigned long)uartBaud);
+ ANCHOR_DIAG_PRINTF("C5_SLEEP_TEST WAKE_CAUSES=0x%08lX\n",(unsigned long)esp_sleep_get_wakeup_causes());
+ ANCHOR_DIAG_PRINTF("ANCHOR_C5 BLE=%d savedPeer=%s factoryBaud=%lu\n",bleReady,savedPeer.c_str(),(unsigned long)uartBaud);
 }
 void loop(){
  if(anchorOtaActive || anchorOtaPending){
@@ -915,10 +931,10 @@ void loop(){
  if(!enEnabled && !workerActive && !deferredRadioOff && offSince && !sleepAttempted && (uint32_t)(millis()-offSince)>=DEEP_SLEEP_HIGH_MS && digitalRead(EN_MONITOR_PIN)==HIGH){
   sleepAttempted=true;
   esp_err_t rc=esp_sleep_enable_ext1_wakeup_io(1ULL<<EN_MONITOR_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
-  Serial.printf("SLEEP_ARM GPIO1 LOW rc=%d (%s)\n",(int)rc,esp_err_to_name(rc));
+  ANCHOR_DIAG_PRINTF("SLEEP_ARM GPIO1 LOW rc=%d (%s)\n",(int)rc,esp_err_to_name(rc));
   Serial.flush();
   if(rc==ESP_OK && digitalRead(EN_MONITOR_PIN)==HIGH){
-    Serial.println("ENTER_DEEP_SLEEP");Serial.flush();delay(100);
+    ANCHOR_DIAG_PRINTLN("ENTER_DEEP_SLEEP");Serial.flush();delay(100);
     if(digitalRead(EN_MONITOR_PIN)==HIGH)esp_deep_sleep_start();
   }
  }
@@ -938,10 +954,12 @@ void loop(){
     else if(uartLine.length()<79)uartLine+=ch;else uartLine="";
   }
  }
+#if ANCHOR_DEBUG
  while(Serial.available()){
   char c=(char)Serial.read();if(c=='\r'||c=='\n'){if(usbLine.length()){usb(usbLine);usbLine="";}}
   else if(usbLine.length()<79)usbLine+=c;else usbLine="";
  }
+#endif
  // If the C5 rebooted while EdgeTX remained running, EdgeTX is at 115200
  // and will not send its factory-baud AT initialization again. Give a startup
  // window for AT+BAUD4, then restore the saved BLE peer autonomously.
@@ -957,7 +975,7 @@ void loop(){
    requestEdgeTxReset();
    initLastResetAt=millis();initResetPending=true;++initResyncCount;++initRetryBudgetUsed;
    ++recoveryAttempts;
-   Serial.printf("WAKE_RECOVERY_REQUEST attempt=%lu; awaiting PH11 reset\n",(unsigned long)recoveryAttempts);
+   ANCHOR_DIAG_PRINTF("WAKE_RECOVERY_REQUEST attempt=%lu; awaiting PH11 reset\n",(unsigned long)recoveryAttempts);
  }
  // A C5-only reboot is distinct from an EdgeTX PH11 reset. If EdgeTX
  // remains in its CONNECTED trainer state, it will not send AT commands,
@@ -975,13 +993,13 @@ void loop(){
      initAdvance(INIT_COMPLETE);
      bleStartPending=true;bleStartAt=millis()+50;
      autoReconnectPending=false;requestScan=false;requestConnect=false;
-     Serial.println("BOOT_ONLY_FALLBACK saved role0: restore BLE telemetry advertising");
+     ANCHOR_DIAG_PRINTLN("BOOT_ONLY_FALLBACK saved role0: restore BLE telemetry advertising");
    }else{
      if(validAddr(savedPeer)){
        bleStartPending=true;bleStartAt=millis()+50;
        autoReconnectPending=true;retryAt=millis()+1200;
      }
-     Serial.println("BOOT_ONLY_FALLBACK saved role1: restore trainer central");
+     ANCHOR_DIAG_PRINTLN("BOOT_ONLY_FALLBACK saved role1: restore trainer central");
    }
  }
  // Init watchdog is only active when PH11 is LOW and a UART initialization
@@ -1000,7 +1018,7 @@ void loop(){
    if(uartBaud!=115200)uartSwitch(115200);
    requestEdgeTxReset();
    initLastResetAt=millis();initResetPending=true;++initResyncCount;++initRetryBudgetUsed;
-   Serial.printf("INIT_WATCHDOG_RESET stage=%u elapsedMs=%lu attempt=%lu\n",
+   ANCHOR_DIAG_PRINTF("INIT_WATCHDOG_RESET stage=%u elapsedMs=%lu attempt=%lu\n",
      (unsigned)initStage,(unsigned long)(millis()-initStageAt),
      (unsigned long)initResyncCount);
  }
@@ -1019,11 +1037,11 @@ void loop(){
      // session. A blank CRLF is ignored by EdgeTX.
      Serial1.print("\r\n");
      reply("Connected:"+telemetryPeer);
-     Serial.printf("TELEM_CLIENT_CONNECTED %s\n",telemetryPeer.c_str());
+     ANCHOR_DIAG_PRINTF("TELEM_CLIENT_CONNECTED %s\n",telemetryPeer.c_str());
    }
    if(telemetryNotifyDisconnect){
      telemetryNotifyDisconnect=false;reply("DisConnected");
-     Serial.println("TELEM_CLIENT_DISCONNECTED");
+     ANCHOR_DIAG_PRINTLN("TELEM_CLIENT_DISCONNECTED");
    }
    if(telemetryStartAdvertising && enEnabled && bleReady){
      telemetryStartAdvertising=false;BLE.startAdvertising();
@@ -1033,6 +1051,7 @@ void loop(){
    pollWorker();
    pollLinkTune();
  }
+#if ANCHOR_DEBUG
  if(telemetryForcePending && !workerActive){
    telemetryForcePending=false;
    autoReconnectPending=false;requestScan=false;requestConnect=false;
@@ -1045,8 +1064,9 @@ void loop(){
    telemetryServer=BLEServer();telemetryNotify=BLECharacteristic();telemetryWrite=BLECharacteristic();
    telemetryConnected=false;telemetryStartAdvertising=false;telemetryHead=telemetryTail=0;
    at("AT+ROLE0");
-   Serial.println("TELEMSTART ROLE0 command injected through C5 control (not UART)");
+   ANCHOR_DIAG_PRINTLN("TELEMSTART ROLE0 command injected through C5 control (not UART)");
  }
+#endif
  // Diagnostic-only until packet-gap behavior has been characterized.
  // Do NOT drop a healthy BLE link merely because a notification gap occurs.
  // 1.5s automatic teardown caused repeated false positives on real hardware.
@@ -1059,7 +1079,7 @@ void loop(){
  if(enEnabled && subscribed && watchdogLast && watchdogAge>=5000 &&
     (int32_t)(watchdogNow-nextStallCheck)>=0){
   ++linkStalls;nextStallCheck=watchdogNow+5000;
-  Serial.printf("LINK_STALL_DIAGNOSTIC ageMs=%ld connected=%d (no forced disconnect)\n",
+  ANCHOR_DIAG_PRINTF("LINK_STALL_DIAGNOSTIC ageMs=%ld connected=%d (no forced disconnect)\n",
       (long)watchdogAge,client && client.isConnected());
  }
  if(enEnabled && !telemetryRole && bleReady && !workerActive && requestScan){requestScan=false;runScan(scanRequestReportUART);scanRequestReportUART=false;}
@@ -1086,5 +1106,7 @@ void loop(){
       totalRxToUartUs+=age;
     }
  }
- if(millis()-lastLog>15000){lastLog=millis();Serial.printf("HEARTBEAT connected=%d notifications=%lu dropped=%lu\n",subscribed,(unsigned long)notifications,(unsigned long)dropped);}
+#if ANCHOR_DEBUG
+ if(millis()-lastLog>15000){lastLog=millis();ANCHOR_DIAG_PRINTF("HEARTBEAT connected=%d notifications=%lu dropped=%lu\n",subscribed,(unsigned long)notifications,(unsigned long)dropped);}
+#endif
 }

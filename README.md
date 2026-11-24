@@ -40,3 +40,7 @@ The TX15 hardware displayed the optional Update module button, and the command s
 - `../patches/yacht-latest-state-ble.patch`: source changes relative to the YACHT low-latency branch's prior commit.
 
 See `firmware/SHA256SUMS` to verify downloaded firmware bytes.
+
+## Production and diagnostic builds
+
+`ANCHOR_DEBUG` defaults to `0` for production. Run `./ANCHOR/build-firmware.sh production` or `./ANCHOR/build-firmware.sh debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
