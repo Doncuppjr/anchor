@@ -26,3 +26,8 @@ local development, with separately packaged production and debug application
 binaries, SHA-256 checksums and build metadata. Release assets should be
 promoted only after hardware regression testing; green CI means compilation and
 static profile checks passed, not OTA or BLE validation.
+
+Each build also generates `ANCHOR/dist/<variant>/ANCHOR-C5-<variant>-full.bin`,
+an 8 MB merged USB-install/recovery image. Flash the full image at address
+`0x0` using esptool; it may erase stored settings. The GitHub Actions artifacts
+include both images, checksums, and build metadata.

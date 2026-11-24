@@ -58,8 +58,8 @@ application-only ESP32-C5 images on every relevant push to an `anchor-yacht/*`
 branch, on relevant pull requests, and via manual `workflow_dispatch`.
 It pins Arduino CLI **1.6.0**, Espressif Arduino core **4.0.0**, and board
 `esp32:esp32:XIAO_ESP32C5` to match our tested development toolchain.
-Each run produces separate `production` and `debug` artifact downloads, with a
-SHA-256 file and source/toolchain metadata. The production job checks that
+Each run produces separate `production` and `debug` artifact downloads,
+each with a full USB-flash and an application-only OTA image, with a SHA-256 file and source/toolchain metadata. The production job checks that
 bench-only diagnostic strings are absent; both jobs verify that the OTA
 protocol remains present. Artifacts are retained for 30 days.
 
@@ -67,6 +67,35 @@ protocol remains present. Artifacts are retained for 30 days.
 cannot verify Trainer/Telemetry functionality, deep-sleep wake, BLE latency,
 or an OTA update on real hardware. Never flash an untested CI image during a
 flight; test a candidate on the bench first.
+
+## Initial USB installation (XIAO ESP32-C5)
+
+The ESP32-C5 uses the Espressif ROM serial-download interface. The XIAO
+ESP32-C5 does not normally present a UF2 mass-storage drive; generating a
+UF2 file alone will not enable drag-and-drop installation.
+
+1. Download and extract the ANCHOR C5 production artifact from the GitHub
+   Actions workflow. Use the **full** image for first installation.
+2. Connect a data-capable USB-C cable to the C5. If necessary, hold BOOT,
+   tap RESET, then release BOOT to enter ROM download mode.
+3. Install esptool (`python -m pip install esptool`), identify the USB serial
+   port, and flash the full merged image at address 0x0:
+
+   ```sh
+   esptool --chip esp32c5 --port /dev/ttyACM0 write-flash 0x0 ANCHOR-C5-production-full.bin
+   ```
+
+   Replace `/dev/ttyACM0` with the correct port, for example `COM4` on Windows.
+4. Reset the board and verify the UART/PH11 interface with the TX15.
+
+**Never upload a `*-full.bin` to the Wi-Fi OTA page.** The 8 MB merged image
+contains bootloader (at 0x2000), partition table (at 0x8000) and application (at 0x10000) for factory USB flashing
+and may erase previously stored NVS pairing/settings. Upload only the
+`ANCHOR-C5-production-app.bin` application image for subsequent OTA updates.
+
+Firmware is build-verified, but USB recovery, the complete OTA upload path,
+and secure update authenticity still require production regression testing.
+See the [Espressif ESP32-C5 esptool guide](https://docs.espressif.com/projects/esptool/en/latest/esp32c5/esptool/basic-commands.html).
 
 ## Production and diagnostic builds
 

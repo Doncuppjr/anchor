@@ -26,4 +26,7 @@ mkdir -p "$out"
   "$tmp/anchor_c5"
 
 cp "$out/anchor_c5.ino.bin" "$out/ANCHOR-C5-$variant-app.bin"
-sha256sum "$out/ANCHOR-C5-$variant-app.bin"
+cp "$out/anchor_c5.ino.merged.bin" "$out/ANCHOR-C5-$variant-full.bin"
+test "$(stat -c %s "$out/ANCHOR-C5-$variant-full.bin")" -eq 8388608
+(cd "$out" && sha256sum "ANCHOR-C5-$variant-app.bin" "ANCHOR-C5-$variant-full.bin" > SHA256SUMS)
+cat "$out/SHA256SUMS"
