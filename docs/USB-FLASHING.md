@@ -25,9 +25,9 @@ For photos of the module and harness inside the radio, see the
 The ESP32-C5 uses the Espressif ROM serial loader for this installation,
 not a UF2 drag-and-drop drive.
 
-## 1. Choose Production
+## 1. Choose the exact board and Production
 
-Click **Connect and install production**.
+Select **XIAO ESP32-C5** from the **Board model** dropdown, then click **Connect and install production**. These screenshots document the C5 installation; the experimental C3 Super Mini uses a different firmware image and its own GPIO wiring.
 
 | Choice | Use |
 | --- | --- |

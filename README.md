@@ -135,7 +135,7 @@ Edge desktop Web Serial to program a connected **XIAO ESP32-C5**. Users select
 The installer uses the same pinned-source **full** image as our CI firmware
 artifacts; there is no separate, untracked firmware image or UF2 bootloader.
 
-The [`ANCHOR C5 firmware` GitHub Actions workflow](../.github/workflows/anchor-firmware.yml)
+The [Anchor multi-board GitHub Actions workflow](.github/workflows/firmware.yml)
 builds both variants, checks the images, generates ESP Web Tools manifests,
 provides a downloadable `ANCHOR-browser-installer-*` site artifact, and attempts
 to publish the site to GitHub Pages on integration-branch pushes or manual runs.
