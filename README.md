@@ -10,6 +10,10 @@ This standalone repository contains the ESP32-C5 Anchor receiver/bridge firmware
 
 ## Hardware / wire contract
 
+See the [TX15 hardware build example](docs/HARDWARE-BUILD.md) for photos of
+the XIAO ESP32-C5, soldered harness, connector orientation, and placement
+inside the radio.
+
 - RadioMaster TX15 PB9 -> C5 GPIO12 UART RX.
 - RadioMaster TX15 PB8 <- C5 GPIO11 UART TX.
 - RadioMaster TX15 PH11 -> C5 GPIO1 active-low module enable; HIGH cancels a waiting OTA maintenance session.
