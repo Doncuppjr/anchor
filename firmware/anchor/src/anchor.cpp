@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <anchor_board.h>
 
 // Production (0) is the default. Override with -DANCHOR_DEBUG=1 to
 // include the USB bench command parser and verbose diagnostic output.
@@ -26,10 +27,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
-// ESP32-C5 CC2540 UART shim: TX15 PB9 -> GPIO12 (RX), PB8 <- GPIO11 (TX).
 // FrSky BLE GATT protocol from Cliff BTWifiModule: 0xFFF0 / 0xFFF6 notify.
 // This build deliberately does NOT simulate connections or invent trainer data.
-static const int RX_PIN=12,TX_PIN=11, EN_MONITOR_PIN=1; // XIAO D0/GPIO1; INPUT ONLY; deep-sleep wake candidate
 static const BLEUUID SERVICE_UUID("FFF0"), TRAINER_UUID("FFF6");
 static BLEClient client;
 // ROLE0 is shared by EdgeTX Trainer Slave and Bluetooth Telemetry.
@@ -48,7 +47,7 @@ static const char ANCHOR_OTA_SSID[]="ANCHOR Chain";
 static const char ANCHOR_OTA_PASS[]="anchor-update";
 static bool persistedTelemetryRole=false;
 // EdgeTX supplies its configured Bluetooth name with AT+NAME.
-// Retain it across BLE restarts and C5-only reboots.
+// Retain it across BLE restarts and bridge-only reboots.
 static String radioBluetoothName = "ANCHOR";
 
 static BLEServer telemetryServer;
@@ -144,7 +143,7 @@ static uint32_t offSince=0; static bool sleepAttempted=false;
 static bool deepSleepWake=false, wakeRecoveryPending=false;
 static uint32_t wakeRecoveryAt=0, recoveryAttempts=0;
 static const uint32_t DEEP_SLEEP_HIGH_MS=2500;
-// EdgeTX has no timeout in NAME_SENT / POWER_SENT. The C5 must track
+// EdgeTX has no timeout in NAME_SENT / POWER_SENT. The bridge must track
 // commands received, not assume that a PH11 cycle means setup succeeded.
 // Stages reset on every PH11 transition. Never reset a completed handshake.
 enum InitStage : uint8_t { INIT_WAIT_BAUD=0, INIT_WAIT_NAME=1,
@@ -177,7 +176,7 @@ static uint32_t scanDeadline=0, scanStarts=0, scanCompletes=0, scanCancels=0;
 
 static String canonical(String a){a.toUpperCase();a.replace(":","");a.replace("-","");return a;}
 static bool validAddr(String a){if(a.length()!=12)return false;for(char c:a)if(!isxdigit((unsigned char)c))return false;return true;}
-// The actual ESP32-C5 public Bluetooth MAC can be read before BLE.begin().
+// The actual ESP32 public Bluetooth MAC can be read before BLE.begin().
 // This is required because EdgeTX requests its identity before AT+ROLE1,
 // and BLE is intentionally initialized only after the UART handshake.
 static String localBtAddr;
@@ -404,7 +403,7 @@ static void anchorOtaRoutes(){
     anchorOtaWeb.send(200,"text/html",
       "<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'>"
       "<title>ANCHOR Chain</title><h1>ANCHOR Chain</h1>"
-      "<p>Upload an ANCHOR ESP32-C5 application .bin file, not a merged flash image.</p>"
+      "<p>Upload an ANCHOR application .bin file, not a merged flash image.</p>"
       "<form method='POST' action='/update' enctype='multipart/form-data'>"
       "<input type='file' name='firmware' accept='.bin' required>"
       "<button type='submit'>Install firmware</button></form>"
@@ -545,7 +544,7 @@ static void anchorOtaPoll(){
 }
 
 // Treat PH11 as the authoritative Bluetooth enable. Keep BLE memory allocated
-// so BLE.begin() can run after BLE.end(false) without resetting the C5.
+// so BLE.begin() can run after BLE.end(false) without resetting the bridge.
 static void radioOff(){
   // OTA is a deliberate maintenance session; do not sleep mid-flash.
   if(anchorOtaActive || anchorOtaPending)return;
@@ -912,7 +911,7 @@ static void usb(const String& cmd){
    ANCHOR_DIAG_PRINTF("BLEINFO phyStatus=%s txPhy=%u rxPhy=%u\n",st.toString(),(unsigned)tx,(unsigned)rx);
    return;
  }
- if(cmd=="EN"){ANCHOR_DIAG_PRINTF("PH11 D0/GPIO1=%d transitions=%lu lastChangeMs=%lu enEnabled=%d BLE=%d starts=%lu stops=%lu\n",digitalRead(EN_MONITOR_PIN),(unsigned long)enTransitions,(unsigned long)enChangedAt,enEnabled,bleReady,(unsigned long)bleStarts,(unsigned long)bleStops);return;}
+ if(cmd=="EN"){ANCHOR_DIAG_PRINTF("PH11 enable=%d transitions=%lu lastChangeMs=%lu enEnabled=%d BLE=%d starts=%lu stops=%lu\n",digitalRead(EN_MONITOR_PIN),(unsigned long)enTransitions,(unsigned long)enChangedAt,enEnabled,bleReady,(unsigned long)bleStarts,(unsigned long)bleStops);return;}
  if(cmd=="PROFILE"){
    ANCHOR_DIAG_PRINTF("PROFILE rx=%lu superseded=%lu uartPackets=%lu uartBytes=%lu writeMaxUs=%lu mainLoops=%lu mainGapMaxUs=%lu mainGapsOver10ms=%lu\n",
      (unsigned long)notifications,(unsigned long)superseded,(unsigned long)uartPackets,(unsigned long)uartBytes,
@@ -985,7 +984,7 @@ static void usb(const String& cmd){
   ANCHOR_DIAG_PRINTLN("NVS peer removed");return;}
  if(cmd=="RESETUART"){uartSwitch(57600);return;}
  if(cmd=="UART115200"){if(!enEnabled){ANCHOR_DIAG_PRINTLN("RADIO_OFF: UART115200 blocked");return;}awaitingHostInit=false;uartSwitch(115200);return;}
- if(cmd=="REBOOT"){ANCHOR_DIAG_PRINTLN("C5 controlled reboot");Serial.flush();ESP.restart();return;}
+ if(cmd=="REBOOT"){ANCHOR_DIAG_PRINTLN("bridge controlled reboot");Serial.flush();ESP.restart();return;}
  ANCHOR_DIAG_PRINTLN("Commands: BLEINFO BLEFAST BLE7 BLE15 BLE2M STATUS EN ADDR RESYNC SYNCROLE SCAN CONNECT <12hex> DROP FORGET RESETUART UART115200 REBOOT");
 }
 #endif // ANCHOR_DEBUG: USB bench command handler
@@ -997,20 +996,20 @@ void setup(){
  String storedName=prefs.getString("btName","");
  if(storedName.length()>0 && storedName.length()<=24)radioBluetoothName=storedName;
  bootAt=millis();
- // C5-only reboot while EdgeTX stays enabled is the one case where its
+ // bridge-only reboot while EdgeTX stays enabled is the one case where its
  // factory AT sequence will not repeat. Allow the old fallback at boot only.
  if(enEnabled){
   radioOn();
   // After deep-sleep wake, EdgeTX may have sent factory-baud AT+BAUD4
   // before our UART became ready. Do not auto-connect or stream to EdgeTX
   // until the handshake is explicitly recovered.
-  deepSleepWake=esp_sleep_get_wakeup_cause()==ESP_SLEEP_WAKEUP_EXT1;
+  deepSleepWake=anchorWokeFromEnable();
   if(deepSleepWake){wakeRecoveryPending=true;wakeRecoveryAt=millis()+1100;fallbackAllowed=false;}
   else fallbackAllowed=true;
  }else ANCHOR_DIAG_PRINTLN("RADIO_OFF at boot: BLE not initialized");
  if(!enEnabled)offSince=millis();
- ANCHOR_DIAG_PRINTF("C5_SLEEP_TEST WAKE_CAUSES=0x%08lX\n",(unsigned long)esp_sleep_get_wakeup_causes());
- ANCHOR_DIAG_PRINTF("ANCHOR_C5 BLE=%d savedPeer=%s factoryBaud=%lu\n",bleReady,savedPeer.c_str(),(unsigned long)uartBaud);
+ ANCHOR_DIAG_PRINTF("ANCHOR_SLEEP_WAKE_CAUSES=0x%08lX\n",(unsigned long)esp_sleep_get_wakeup_causes());
+ ANCHOR_DIAG_PRINTF("ANCHOR BLE=%d savedPeer=%s factoryBaud=%lu\n",bleReady,savedPeer.c_str(),(unsigned long)uartBaud);
 }
 void loop(){
  if(anchorOtaActive || anchorOtaPending){
@@ -1027,11 +1026,11 @@ void loop(){
  readEnable();
  // Only 2500 continuous milliseconds HIGH permits deep sleep. Brief EdgeTX
  // disable/re-init pulses are serviced awake with UART already at 57600.
- // Abort unless LOW-level GPIO1 wake can be configured successfully.
+ // Abort unless LOW-level enable-pin wake can be configured successfully.
  if(!enEnabled && !workerActive && !deferredRadioOff && offSince && !sleepAttempted && (uint32_t)(millis()-offSince)>=DEEP_SLEEP_HIGH_MS && digitalRead(EN_MONITOR_PIN)==HIGH){
   sleepAttempted=true;
-  esp_err_t rc=esp_sleep_enable_ext1_wakeup_io(1ULL<<EN_MONITOR_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
-  ANCHOR_DIAG_PRINTF("SLEEP_ARM GPIO1 LOW rc=%d (%s)\n",(int)rc,esp_err_to_name(rc));
+  esp_err_t rc=anchorConfigureWakeOnEnableLow();
+  ANCHOR_DIAG_PRINTF("SLEEP_ARM enable LOW rc=%d (%s)\n",(int)rc,esp_err_to_name(rc));
   Serial.flush();
   if(rc==ESP_OK && digitalRead(EN_MONITOR_PIN)==HIGH){
     ANCHOR_DIAG_PRINTLN("ENTER_DEEP_SLEEP");Serial.flush();delay(100);
@@ -1058,7 +1057,7 @@ void loop(){
   else if(usbLine.length()<79)usbLine+=c;else usbLine="";
  }
 #endif
- // If the C5 rebooted while EdgeTX remained running, EdgeTX is at 115200
+ // If the bridge rebooted while EdgeTX remained running, EdgeTX is at 115200
  // and will not send its factory-baud AT initialization again. Give a startup
  // window for AT+BAUD4, then restore the saved BLE peer autonomously.
  // Deep-sleep wake can miss EdgeTX's one-shot 57600-baud startup request.
@@ -1075,7 +1074,7 @@ void loop(){
    ++recoveryAttempts;
    ANCHOR_DIAG_PRINTF("WAKE_RECOVERY_REQUEST attempt=%lu; awaiting PH11 reset\n",(unsigned long)recoveryAttempts);
  }
- // A C5-only reboot is distinct from an EdgeTX PH11 reset. If EdgeTX
+ // A bridge-only reboot is distinct from an EdgeTX PH11 reset. If EdgeTX
  // remains in its CONNECTED trainer state, it will not send AT commands,
  // and receiveTrainer() ignores ERROR. Restore the saved BLE peer only on
  // that boot-only path, never after a PH11 HIGH->LOW transition.
@@ -1130,7 +1129,7 @@ void loop(){
    if(telemetryNotifyConnect){
      telemetryNotifyConnect=false;
      // An ESP boot-ROM byte can remain in EdgeTX readline() after a
-     // C5-only restart. Terminate that partial record before announcing
+     // bridge-only restart. Terminate that partial record before announcing
      // the connection, otherwise EdgeTX remains IDLE despite an active BLE
      // session. A blank CRLF is ignored by EdgeTX.
      Serial1.print("\r\n");
@@ -1164,7 +1163,7 @@ void loop(){
    telemetryServer=BLEServer();telemetryNotify=BLECharacteristic();telemetryWrite=BLECharacteristic();
    telemetryConnected=false;telemetryStartAdvertising=false;telemetryHead=telemetryTail=0;resetRole0Protocol();
    at("AT+ROLE0");
-   ANCHOR_DIAG_PRINTLN("TELEMSTART ROLE0 command injected through C5 control (not UART)");
+   ANCHOR_DIAG_PRINTLN("TELEMSTART ROLE0 command injected through bridge control (not UART)");
  }
 #endif
  // Diagnostic-only until packet-gap behavior has been characterized.

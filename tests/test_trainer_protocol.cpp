@@ -1,4 +1,4 @@
-#include "../firmware/trainer_protocol.h"
+#include "../firmware/anchor/src/trainer_protocol.h"
 #include <cassert>
 #include <cstdint>
 #include <vector>

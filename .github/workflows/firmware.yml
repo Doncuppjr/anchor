@@ -7,18 +7,18 @@ on:
     branches:
       - main
     paths:
-      - 'firmware/anchor_c5.ino'
-      - 'firmware/trainer_protocol.h'
+      - 'firmware/**'
+      - 'boards/**'
+      - 'Makefile'
       - 'tests/**'
-      - 'build-firmware.sh'
       - 'installer/**'
       - '.github/workflows/firmware.yml'
   pull_request:
     paths:
-      - 'firmware/anchor_c5.ino'
-      - 'firmware/trainer_protocol.h'
+      - 'firmware/**'
+      - 'boards/**'
+      - 'Makefile'
       - 'tests/**'
-      - 'build-firmware.sh'
       - 'installer/**'
       - '.github/workflows/firmware.yml'
 
@@ -27,12 +27,13 @@ permissions:
 
 jobs:
   build:
-    name: ESP32-C5 / ${{ matrix.variant }}
+    name: ${{ matrix.board }} / ${{ matrix.variant }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
+        board: [c5, c3-supermini]
         variant: [production, debug]
     steps:
       - name: Checkout source
@@ -53,36 +54,38 @@ jobs:
 
       - name: Test trainer framing parser (host compiler)
         run: |
-          g++ -std=c++17 -Wall -Wextra -Werror tests/test_trainer_protocol.cpp -o /tmp/anchor-trainer-test
-          /tmp/anchor-trainer-test
+          make test
 
       - name: Build ANCHOR application image
-        run: ./build-firmware.sh "${{ matrix.variant }}"
+        run: make build BOARD=${{ matrix.board }} PROFILE=${{ matrix.variant }}
 
       - name: Verify build profile and package
         shell: bash
         env:
           VARIANT: ${{ matrix.variant }}
+          BOARD: ${{ matrix.board }}
         run: |
           set -euo pipefail
-          out="dist/$VARIANT"
-          app="$out/ANCHOR-C5-$VARIANT-app.bin"
+          case "$BOARD" in
+            c5) prefix=ANCHOR-C5; size=8388608; slot=$((0x300000)); boot=0x2000; fqbn=esp32:esp32:XIAO_ESP32C5 ;;
+            c3-supermini) prefix=ANCHOR-C3-SUPERMINI; size=4194304; slot=$((0x1F0000)); boot=0; fqbn=esp32:esp32:esp32c3:PartitionScheme=no_fs,CDCOnBoot=cdc ;;
+            *) exit 2 ;;
+          esac
+          out="dist/$BOARD/$VARIANT"
+          app="$out/$prefix-$VARIANT-app.bin"
+          full="$out/$prefix-$VARIANT-full.bin"
           test -s "$app"
-          full="$out/ANCHOR-C5-$VARIANT-full.bin"
-          test "$(stat -c %s "$full")" -eq 8388608
-          # ESP32-C5 merged layout: bootloader at 0x2000, partitions at
-          # 0x8000, application at 0x10000. Verify magic bytes and that the
-          # embedded application exactly matches the separately built OTA bin.
-          python3 - "$app" "$full" <<'PYVERIFY'
+          test "$(stat -c %s "$full")" -eq "$size"
+          test "$(stat -c %s "$app")" -le "$slot"
+          python3 - "$app" "$full" "$boot" <<'PYVERIFY'
           from pathlib import Path
           import sys
           app = Path(sys.argv[1]).read_bytes()
           full = Path(sys.argv[2]).read_bytes()
-          assert full[0x2000] == 0xe9, 'bootloader magic missing'
-          assert full[0x8000:0x8002] == bytes([0xaa, 0x50]), 'partition table magic missing'
+          assert full[int(sys.argv[3],0)] == 0xe9, 'bootloader magic missing'
+          assert full[0x8000:0x8002] == bytes([0xaa, 0x50]), 'partition magic missing'
           assert full[0x10000:0x10000+len(app)] == app, 'app differs from merged image'
           PYVERIFY
-          # Debug-only functionality must not leak into the production binary.
           if [[ "$VARIANT" == production ]]; then
             ! grep -aFq 'INJECTED_DISCONNECT previouslyConnected' "$app"
             ! grep -aFq 'TELEMTEST queued=' "$app"
@@ -90,25 +93,24 @@ jobs:
             grep -aFq 'INJECTED_DISCONNECT previouslyConnected' "$app"
             grep -aFq 'TELEMTEST queued=' "$app"
           fi
-          # Both profiles must include the normal AT command and OTA page.
           grep -aFq 'AT+OTA' "$app"
           grep -aFq 'ANCHOR Chain' "$app"
           (
             cd "$out"
-            sha256sum "ANCHOR-C5-$VARIANT-app.bin" "ANCHOR-C5-$VARIANT-full.bin" > SHA256SUMS
-            printf 'git_commit=%s\nvariant=%s\nboard=esp32:esp32:XIAO_ESP32C5\narduino_cli=1.6.0\nesp32_core=4.0.0\n' \
-              "$GITHUB_SHA" "$VARIANT" > BUILD-METADATA.txt
+            sha256sum "$prefix-$VARIANT-app.bin" "$prefix-$VARIANT-full.bin" > SHA256SUMS
+            printf 'git_commit=%s\nvariant=%s\nboard=%s\narduino_cli=1.6.0\nesp32_core=4.0.0\n' \
+              "$GITHUB_SHA" "$VARIANT" "$fqbn" > BUILD-METADATA.txt
           )
 
       - name: Upload USB and OTA firmware
         uses: actions/upload-artifact@v4
         with:
-          name: ANCHOR-C5-${{ matrix.variant }}-${{ github.sha }}
+          name: ANCHOR-${{ matrix.board }}-${{ matrix.variant }}-${{ github.sha }}
           path: |
-            dist/${{ matrix.variant }}/ANCHOR-C5-${{ matrix.variant }}-app.bin
-            dist/${{ matrix.variant }}/ANCHOR-C5-${{ matrix.variant }}-full.bin
-            dist/${{ matrix.variant }}/SHA256SUMS
-            dist/${{ matrix.variant }}/BUILD-METADATA.txt
+            dist/${{ matrix.board }}/${{ matrix.variant }}/*-app.bin
+            dist/${{ matrix.board }}/${{ matrix.variant }}/*-full.bin
+            dist/${{ matrix.board }}/${{ matrix.variant }}/SHA256SUMS
+            dist/${{ matrix.board }}/${{ matrix.variant }}/BUILD-METADATA.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -128,7 +130,7 @@ jobs:
       - name: Download firmware images
         uses: actions/download-artifact@v4
         with:
-          pattern: ANCHOR-C5-*-${{ github.sha }}
+          pattern: ANCHOR-c5-*-${{ github.sha }}
           path: dist
           merge-multiple: false
       - name: Arrange downloaded firmware variants
@@ -136,13 +138,13 @@ jobs:
         run: |
           set -euo pipefail
           for variant in production debug; do
-            d="dist/ANCHOR-C5-$variant-${GITHUB_SHA}"
+            d="dist/ANCHOR-c5-$variant-${GITHUB_SHA}"
             test -f "$d/ANCHOR-C5-$variant-full.bin"
-            mkdir -p "dist/$variant"
-            cp "$d/"* "dist/$variant/"
+            mkdir -p "dist/c5/$variant"
+            cp "$d/"* "dist/c5/$variant/"
           done
       - name: Create GitHub Pages site
-        run: python3 installer/generate-site.py --dist dist --output site --version "${GITHUB_SHA:0:12}"
+        run: python3 installer/generate-site.py --dist dist/c5 --output site --version "${GITHUB_SHA:0:12}"
         shell: bash
       - name: Check installer files
         run: |

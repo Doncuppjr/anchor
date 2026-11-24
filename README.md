@@ -1,3 +1,30 @@
+# Anchor: portable Bluetooth trainer bridge
+
+Anchor is one application with board-specific hardware profiles rather than a
+fork per device. Supported build targets:
+
+```sh
+make BOARD=c5 PROFILE=production
+make BOARD=c5 PROFILE=debug
+make BOARD=c3-supermini PROFILE=production
+make BOARD=c3-supermini PROFILE=debug
+make c5 PROD=TRUE              # alias
+make c3-supermini PROD=FALSE   # alias
+make test
+```
+
+Arduino CLI 1.6.0 with ESP32 core 4.0.0 is used by these profiles. Compiler
+output goes to `dist/<board>/<profile>/`. `*-app.bin` is OTA-only; `*-full.bin`
+is a USB/full-flash image. This is a build-portability milestone, not proof of
+hardware compatibility: newly added boards require UART, GPIO, sleep/wake, BLE,
+and OTA regression testing.
+
+For the C3 Super Mini, see [board wiring and limitations](boards/README.md).
+The web installer currently publishes **C5 only**, since C3 hardware has not
+undergone field testing.
+
+---
+
 # ANCHOR + YACHT Bluetooth Trainer bridge
 
 This standalone repository contains the ESP32-C5 Anchor receiver/bridge firmware, documented trainer protocol, browser installer, and optional AT OTA contract. Yacht firmware and TinyGo BLE changes are maintained separately in [yacht](https://github.com/Doncuppjr/yacht).
@@ -30,7 +57,9 @@ The TX15 hardware displayed the optional Update module button, and the command s
 
 ## Files
 
-- `firmware/anchor_c5.ino`: latest ANCHOR source.
+- `firmware/anchor/src/anchor.cpp`: shared ANCHOR application code.
+- `boards/`: target-specific pin, wake and flash profiles.
+- `Makefile`: common build entry point.
 - EdgeTX radio firmware is maintained separately; it is not built or shipped by Anchor.
 - Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
@@ -95,7 +124,7 @@ See the [Espressif ESP32-C5 esptool guide](https://docs.espressif.com/projects/e
 
 ## Production and diagnostic builds
 
-`ANCHOR_DEBUG` defaults to `0` for production. Run `./build-firmware.sh production` or `./build-firmware.sh debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
+`ANCHOR_DEBUG` defaults to `0` for production. Run `make BOARD=c5 PROFILE=production` or `make BOARD=c5 PROFILE=debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
 
 ## Browser installer (first-time USB setup)
 

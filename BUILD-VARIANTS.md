@@ -8,11 +8,11 @@
 Run using Arduino CLI and the installed ESP32 4.0.0 core:
 
 ```sh
-ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./build-firmware.sh production
-ARDUINO_CLI=/home/davinci/tx15-bridge/bin/arduino-cli ./build-firmware.sh debug
+make BOARD=c5 PROFILE=production
+make BOARD=c5 PROFILE=debug
 ```
 
-Both builds place an OTA-compatible **application-only** image at `dist/<variant>/ANCHOR-C5-<variant>-app.bin`. Never upload a merged full-flash image through the OTA webpage. `dist/` is ignored by Git; binaries are provided by GitHub Actions build artifacts and the browser installer, not committed to source control.
+Both builds place an OTA-compatible **application-only** image at `dist/<board>/<variant>/ANCHOR-C5-<variant>-app.bin`. Never upload a merged full-flash image through the OTA webpage. `dist/` is ignored by Git; binaries are provided by GitHub Actions build artifacts and the browser installer, not committed to source control.
 
 **Status:** This debug-flag change is compile-verified for both configurations, not yet flashed or hardware regression-tested. Previously hardware-tested firmware is historical and is no longer tracked in source control.
 
@@ -27,7 +27,7 @@ binaries, SHA-256 checksums and build metadata. Release assets should be
 promoted only after hardware regression testing; green CI means compilation and
 static profile checks passed, not OTA or BLE validation.
 
-Each build also generates `dist/<variant>/ANCHOR-C5-<variant>-full.bin`,
+Each build also generates `dist/<board>/<variant>/ANCHOR-C5-<variant>-full.bin`,
 an 8 MB merged USB-install/recovery image. Flash the full image at address
 `0x0` using esptool; it may erase stored settings. The GitHub Actions artifacts
 include both images, checksums, and build metadata.
