@@ -17,6 +17,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/anchor_c5"
 cp "$project_dir/firmware/anchor_c5.ino" "$tmp/anchor_c5/anchor_c5.ino"
+cp "$project_dir/firmware/trainer_protocol.h" "$tmp/anchor_c5/trainer_protocol.h"
 out="$project_dir/dist/$variant"
 mkdir -p "$out"
 "$cli" compile \

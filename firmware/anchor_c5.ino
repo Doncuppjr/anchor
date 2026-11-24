@@ -14,6 +14,7 @@
 #define ANCHOR_DIAG_PRINTLN(...) do {} while (0)
 #endif
 #include <BLE.h>
+#include "trainer_protocol.h"
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -31,8 +32,9 @@
 static const int RX_PIN=12,TX_PIN=11, EN_MONITOR_PIN=1; // XIAO D0/GPIO1; INPUT ONLY; deep-sleep wake candidate
 static const BLEUUID SERVICE_UUID("FFF0"), TRAINER_UUID("FFF6");
 static BLEClient client;
-// Peripheral mode for EdgeTX BLUETOOTH_TELEMETRY (AT+ROLE0).
-// Raw EdgeTX UART stream is transported losslessly as ordered GATT notifications.
+// ROLE0 is shared by EdgeTX Trainer Slave and Bluetooth Telemetry.
+// Detect a validated FrSky trainer frame before forwarding trainer data;
+// otherwise preserve the original telemetry byte stream.
 // BLE-only; not Bluetooth Classic SPP.
 static bool telemetryRole=false, telemetryForcePending=false;
 static bool anchorOtaPending=false,anchorOtaActive=false,anchorOtaUploading=false;
@@ -61,6 +63,33 @@ static uint32_t telemetryUartBytes=0,telemetryBleBytes=0,telemetryBlePackets=0;
 static uint32_t telemetryDrops=0,telemetryNotifyBusy=0,telemetryMaxDepth=0;
 static uint32_t telemetryLastSentMs=0,telemetryFirstPendingUs=0,telemetryNoSubscriberDrops=0,telemetrySendFailures=0;
 static const BLEUUID TELEMETRY_NOTIFY_UUID("FFF6"), TELEMETRY_WRITE_UUID("FFF7");
+// ROLE0 protocol is chosen from the first complete UART traffic: trainer
+// begins with an XOR-checked 0x7e/0x80 frame; other bytes are telemetry.
+// Once selected, remain locked until the next AT/PH11 role handshake.
+enum Role0Protocol : uint8_t { ROLE0_UNDECIDED, ROLE0_TELEMETRY, ROLE0_TRAINER };
+static Role0Protocol role0Protocol=ROLE0_UNDECIDED;
+static TrainerFrameParser role0Parser;
+static uint8_t role0Probe[TrainerFrameParser::kWireCapacity];
+static size_t role0ProbeLen=0;
+static uint32_t role0ProbeSince=0, role0TrainerValid=0, role0TrainerInvalid=0;
+static uint32_t role0TrainerSuperseded=0, role0TrainerSent=0, role0TrainerBusy=0;
+struct TrainerTxFrame {
+ uint8_t data[TrainerFrameParser::kWireCapacity];
+ uint8_t len=0, offset=0;
+ uint32_t created=0;
+};
+static TrainerTxFrame trainerSending, trainerLatest;
+static void resetRole0Protocol(){
+ role0Protocol=ROLE0_UNDECIDED;role0Parser.reset();role0ProbeLen=0;
+ role0ProbeSince=0;trainerSending.len=trainerLatest.len=0;
+}
+static void trainerOffer(const uint8_t *data,size_t len){
+ if(!data || !len || len>sizeof(trainerLatest.data))return;
+ if(trainerLatest.len)++role0TrainerSuperseded;
+ memcpy(trainerLatest.data,data,len);trainerLatest.len=(uint8_t)len;
+ trainerLatest.offset=0;trainerLatest.created=millis();
+}
+
 static size_t telemetryDepth(){return (telemetryHead+sizeof(telemetryBytes)-telemetryTail)%sizeof(telemetryBytes);}
 static void telemetryPush(uint8_t value){
  if(telemetryHead==telemetryTail)telemetryFirstPendingUs=micros();
@@ -257,6 +286,73 @@ static void telemetryDrain(){
   if(telemetryHead!=telemetryTail)telemetryFirstPendingUs=micros();
   telemetryBleBytes+=count;++telemetryBlePackets;telemetryLastSentMs=millis();
  }else{++telemetryNotifyBusy;++telemetrySendFailures;}
+}
+// Only whole validated trainer frames enter the BLE transmit mailbox. A
+// pending frame is replaced by the newest one, but an in-flight segmented
+// frame is always completed before starting another frame.
+static void trainerDrain(){
+ if(!telemetryConnected || !telemetryNotify || telemetryNotify.getSubscribedCount()==0){
+  trainerSending.len=trainerLatest.len=0;return;
+ }
+ if(!trainerSending.len){
+  if(!trainerLatest.len)return;
+  if((uint32_t)(millis()-trainerLatest.created)>100){trainerLatest.len=0;return;}
+  trainerSending=trainerLatest;trainerLatest.len=0;
+ }
+ const size_t remain=trainerSending.len-trainerSending.offset;
+ const size_t amount=remain>20?20:remain; // safe at ATT MTU 23
+ BTStatus st=telemetryNotify.notify(trainerSending.data+trainerSending.offset,amount);
+ if(st){
+  trainerSending.offset+=(uint8_t)amount;
+  if(trainerSending.offset==trainerSending.len){trainerSending.len=0;++role0TrainerSent;}
+ }else ++role0TrainerBusy;
+}
+// Default Telemetry is unchanged for raw/CRSF input. An initial 0x7e
+// (shared with SPORT) gets a bounded probe; only a validated 0x80 frame
+// switches into Trainer mode. Keep the probe even without a BLE peer,
+// since the UART starts sending only after the host sees Connected.
+static void role0InputByte(uint8_t byte){
+ if(role0Protocol==ROLE0_TELEMETRY){
+  if(telemetryConnected)telemetryInputByte(byte);
+  return;
+ }
+ if(role0Protocol==ROLE0_TRAINER){
+  auto result=role0Parser.feed(byte);
+  if(result==TrainerFrameParser::Valid){
+   ++role0TrainerValid;trainerOffer(role0Parser.wire,role0Parser.wireLen);
+   role0Parser.reset();
+  }else if(result==TrainerFrameParser::Invalid)++role0TrainerInvalid;
+  return;
+ }
+ if(!role0ProbeLen && byte!=0x7e){
+  role0Protocol=ROLE0_TELEMETRY;
+  if(telemetryConnected)telemetryInputByte(byte);
+  ANCHOR_DIAG_PRINTLN("ROLE0_PROTOCOL telemetry: non-trainer start");
+  return;
+ }
+ if(!role0ProbeLen)role0ProbeSince=millis();
+ if(role0ProbeLen<sizeof(role0Probe))role0Probe[role0ProbeLen++]=byte;
+ const auto result=role0Parser.feed(byte);
+ if(result==TrainerFrameParser::Valid){
+  role0Protocol=ROLE0_TRAINER;++role0TrainerValid;
+  trainerOffer(role0Parser.wire,role0Parser.wireLen);
+  role0Parser.reset();role0ProbeLen=0;
+  ANCHOR_DIAG_PRINTLN("ROLE0_PROTOCOL trainer: valid 8-channel frame");
+ }else if(result==TrainerFrameParser::Invalid || role0ProbeLen==sizeof(role0Probe)){
+  role0Protocol=ROLE0_TELEMETRY;
+  if(telemetryConnected)for(size_t i=0;i<role0ProbeLen;i++)telemetryInputByte(role0Probe[i]);
+  role0ProbeLen=0;role0Parser.reset();
+  ANCHOR_DIAG_PRINTLN("ROLE0_PROTOCOL telemetry: invalid trainer frame");
+ }
+}
+static void role0PollProbe(){
+ // Avoid indefinitely withholding an incomplete SPORT/telemetry frame.
+ if(role0Protocol==ROLE0_UNDECIDED && role0ProbeLen &&
+    (uint32_t)(millis()-role0ProbeSince)>50){
+  role0Protocol=ROLE0_TELEMETRY;
+  if(telemetryConnected)for(size_t i=0;i<role0ProbeLen;i++)telemetryInputByte(role0Probe[i]);
+  role0ProbeLen=0;role0Parser.reset();
+ }
 }
 static void replyCentral(){
  if(validAddr(localBtAddr))reply("Central:"+localBtAddr);
@@ -455,7 +551,7 @@ static void radioOff(){
   if(anchorOtaActive || anchorOtaPending)return;
   if(telemetryRole){
     telemetryConnected=false;telemetryNotifyConnect=false;telemetryNotifyDisconnect=false;
-    telemetryStartAdvertising=false;telemetryHead=telemetryTail=0;
+    telemetryStartAdvertising=false;telemetryHead=telemetryTail=0;resetRole0Protocol();
   }
   linkTuneStage=0;
   offSince=millis();sleepAttempted=false;
@@ -477,7 +573,7 @@ static void radioOff(){
     bleReady=false;++bleStops;
   }
   uartLine="";
-  telemetryRole=false;
+  telemetryRole=false;resetRole0Protocol();
   awaitingHostInit=true;
   initStage=INIT_WAIT_BAUD;initStageAt=0;
   if(uartBaud!=57600)uartSwitch(57600);
@@ -709,7 +805,7 @@ static void at(const String& cmd){
  }
  if(cmd=="AT+ROLE0"){
    // EdgeTX telemetry mirror uses a Bluetooth peripheral role, not trainer-central.
-   telemetryRole=true;persistedTelemetryRole=true;
+   telemetryRole=true;persistedTelemetryRole=true;resetRole0Protocol();
    prefs.putUChar("btRole", 0);
    initAdvance(INIT_COMPLETE);awaitingHostInit=false;
    fallbackAllowed=false;
@@ -721,7 +817,7 @@ static void at(const String& cmd){
    return;
  }
  if(cmd=="AT+ROLE1"){
-  telemetryRole=false;persistedTelemetryRole=false;
+  telemetryRole=false;persistedTelemetryRole=false;resetRole0Protocol();
   prefs.putUChar("btRole", 1);
   initAdvance(INIT_COMPLETE);
   initResetPending=false;initRetryBudgetUsed=0;
@@ -862,6 +958,10 @@ static void usb(const String& cmd){
   ANCHOR_DIAG_PRINTF("TELEM noSubscriberDropped=%lu sendFailures=%lu savedRole=%s\n",
      (unsigned long)telemetryNoSubscriberDrops,(unsigned long)telemetrySendFailures,
      persistedTelemetryRole?"telemetry":"trainer");
+  ANCHOR_DIAG_PRINTF("ROLE0 protocol=%u trainerValid=%lu trainerInvalid=%lu sent=%lu superseded=%lu busy=%lu pending=%u active=%u\n",
+    (unsigned)role0Protocol,(unsigned long)role0TrainerValid,(unsigned long)role0TrainerInvalid,
+    (unsigned long)role0TrainerSent,(unsigned long)role0TrainerSuperseded,
+    (unsigned long)role0TrainerBusy,(unsigned)trainerLatest.len,(unsigned)trainerSending.len);
   ANCHOR_DIAG_PRINTF("TELEM CRSF-compat=%d converted=%lu invalid=%lu pending=%u\n",
     telemetryViewerCompat,(unsigned long)telemetryCrsfConverted,
     (unsigned long)telemetryCrsfInvalid,(unsigned)telemetryCrsfCount);return;
@@ -942,11 +1042,9 @@ void loop(){
  while(enEnabled && Serial1.available()){
   uint8_t byte=(uint8_t)Serial1.read();
   if(telemetryRole && initStage==INIT_COMPLETE){
-    // EdgeTX sends binary CRSF in telemetry role *even when there is no
-    // BLE client*. Never parse that stream as AT on BLE disconnect; doing
-    // so can emit ERROR to EdgeTX and induce a destructive reset loop.
-    if(telemetryConnected)telemetryInputByte(byte);
-    else telemetryCrsfCount=0;
+    // ROLE0 is binary trainer OR telemetry; never mistake payload for AT
+    // after BLE disconnect. Detect protocol using checked complete frames.
+    role0InputByte(byte);
   }else{
     telemetryCrsfCount=0;
     char ch=(char)byte;
@@ -989,7 +1087,7 @@ void loop(){
    if(persistedTelemetryRole){
      // EdgeTX may remain in TELEMETRY mode and never repeat AT+ROLE0.
      // Restore the actual BLE peripheral instead of the old trainer central.
-     telemetryRole=true;
+     telemetryRole=true;resetRole0Protocol();
      initAdvance(INIT_COMPLETE);
      bleStartPending=true;bleStartAt=millis()+50;
      autoReconnectPending=false;requestScan=false;requestConnect=false;
@@ -1046,7 +1144,9 @@ void loop(){
    if(telemetryStartAdvertising && enEnabled && bleReady){
      telemetryStartAdvertising=false;BLE.startAdvertising();
    }
-   telemetryDrain();
+   role0PollProbe();
+   if(role0Protocol==ROLE0_TRAINER)trainerDrain();
+   else telemetryDrain();
  }else{
    pollWorker();
    pollLinkTune();
@@ -1062,7 +1162,7 @@ void loop(){
      client=BLEClient();lastScan=BLEScan::Results();
    }
    telemetryServer=BLEServer();telemetryNotify=BLECharacteristic();telemetryWrite=BLECharacteristic();
-   telemetryConnected=false;telemetryStartAdvertising=false;telemetryHead=telemetryTail=0;
+   telemetryConnected=false;telemetryStartAdvertising=false;telemetryHead=telemetryTail=0;resetRole0Protocol();
    at("AT+ROLE0");
    ANCHOR_DIAG_PRINTLN("TELEMSTART ROLE0 command injected through C5 control (not UART)");
  }

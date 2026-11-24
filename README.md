@@ -128,3 +128,14 @@ firmware uses a development OTA password and has not undergone firmware signing
 or complete OTA regression testing. A successful CI build does not authorize
 flight use; verify on hardware first. The OTA application-only `.bin` remains
 available for subsequent updates.
+
+## Experimental ANCHOR-to-ANCHOR Trainer Slave relay
+
+In `AT+ROLE0`, ANCHOR now distinguishes EdgeTX Bluetooth Trainer **Slave**
+from Bluetooth Telemetry by validating the first full FrSky trainer frame.
+Trainer packets are forwarded on BLE GATT `FFF6` through a latest-frame
+mailbox; telemetry retains the previous raw stream behavior. This does not
+change the validated `AT+ROLE1` trainer receiver. See
+[TRAINER-RELAY.md](docs/TRAINER-RELAY.md) for protocol details and the
+**required hardware regression checklist**. The feature is compile-verified,
+not yet tested between two transmitters.
