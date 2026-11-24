@@ -117,6 +117,8 @@ jobs:
       pages: write
       id-token: write
     name: Package browser installer
+    outputs:
+      pages_enabled: ${{ steps.pages_check.outputs.enabled }}
     needs: build
     runs-on: ubuntu-24.04
     steps:
@@ -153,13 +155,27 @@ jobs:
           path: site/
           if-no-files-found: error
           retention-days: 30
+      - name: Check whether GitHub Pages is enabled
+        id: pages_check
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if curl --silent --show-error --fail --retry 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages" >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "GitHub Pages not enabled. Installer artifact was uploaded; enable Pages with GitHub Actions as source to publish it."
+          fi
       - name: Configure GitHub Pages
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: steps.pages_check.outputs.enabled == 'true'
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - name: Upload GitHub Pages artifact
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: steps.pages_check.outputs.enabled == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
@@ -169,7 +185,7 @@ jobs:
       pages: write
       id-token: write
     name: Deploy browser installer
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.installer.outputs.pages_enabled == 'true'
     needs: installer
     runs-on: ubuntu-24.04
     environment:
