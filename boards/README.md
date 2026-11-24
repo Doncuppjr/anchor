@@ -13,12 +13,17 @@ those files. The host trainer protocol test is board-independent.
 
 ## C3 Super Mini proposed wiring
 
-* Anchor **RX GPIO4** ← TX15 transmit, 3.3 V UART
-* Anchor **TX GPIO5** → TX15 receive, 3.3 V UART
+* Anchor **RX GPIO20** ← TX15 transmit, 3.3 V UART
+* Anchor **TX GPIO21** → TX15 receive, 3.3 V UART
 * Anchor **enable GPIO3** ← TX15 PH11 signal, active-low
 * Common GND, power from a regulated 3.3 V rail with sufficient peak current
 
-These are **new** connections, not C5 wiring! Avoid GPIO2/8/9 boot-strap pins and
+GPIO20 (UART0 RX) and GPIO21 (UART0 TX) are the ESP32-C3 ROM bootloader
+defaults. This makes a future transparent TX15 USB-to-UART flashing bridge
+possible without moving the UART wires; software entry into ROM download
+mode and passthrough are **not yet implemented or verified**.
+
+These are **different** connections from C5 wiring! Avoid GPIO2/8/9 boot-strap pins and
 GPIO18/19 native USB pins. Check the actual pin mapping on your Super Mini.
 Native USB CDC is enabled for debug/maintenance, since the generic C3 board disables it by default.
 A 4 MB `no_fs` partition scheme creates two 0x1F0000 application slots for OTA.
