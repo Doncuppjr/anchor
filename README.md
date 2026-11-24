@@ -20,8 +20,8 @@ hardware compatibility: newly added boards require UART, GPIO, sleep/wake, BLE,
 and OTA regression testing.
 
 For the C3 Super Mini, see [board wiring and limitations](boards/README.md).
-The web installer currently publishes **C5 only**, since C3 hardware has not
-undergone field testing.
+The browser installer includes a board selector for C5 and experimental C3 firmware.
+The C3 is compile-verified only and must be hardware-tested before deployment.
 
 ---
 

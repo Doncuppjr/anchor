@@ -1,4 +1,4 @@
-name: ANCHOR C5 firmware
+name: ANCHOR multi-board firmware
 # Build signed-off production/debug artifacts and publish the generated browser installer.
 
 on:
@@ -131,27 +131,34 @@ jobs:
       - name: Download firmware images
         uses: actions/download-artifact@v4
         with:
-          pattern: ANCHOR-c5-*-${{ github.sha }}
+          pattern: ANCHOR-*-${{ github.sha }}
           path: dist
           merge-multiple: false
       - name: Arrange downloaded firmware variants
         shell: bash
         run: |
           set -euo pipefail
-          for variant in production debug; do
-            d="dist/ANCHOR-c5-$variant-${GITHUB_SHA}"
-            test -f "$d/ANCHOR-C5-$variant-full.bin"
-            mkdir -p "dist/c5/$variant"
-            cp "$d/"* "dist/c5/$variant/"
+          for board in c5 c3-supermini; do
+            for variant in production debug; do
+              d="dist/ANCHOR-$board-$variant-${GITHUB_SHA}"
+              test -f "$d/BUILD-METADATA.txt"
+              mkdir -p "dist/$board/$variant"
+              cp "$d/"* "dist/$board/$variant/"
+            done
           done
       - name: Create GitHub Pages site
-        run: python3 installer/generate-site.py --dist dist/c5 --output site --version "${GITHUB_SHA:0:12}"
+        run: python3 installer/generate-site.py --dist dist --output site --version "${GITHUB_SHA:0:12}" --boards c5 c3-supermini
         shell: bash
       - name: Check installer files
         run: |
           test -f site/index.html
-          test -f site/production/manifest.json
-          test -f site/debug/manifest.json
+          test -f site/boards.json
+          for board in c5 c3-supermini; do
+            test -f "site/$board/production/manifest.json"
+            test -f "site/$board/debug/manifest.json"
+          done
+      - name: Test multi-board installer selector and manifests
+        run: python3 -m unittest discover -s tests -p test_installer.py -v
       - name: Publish installer site artifact
         uses: actions/upload-artifact@v4
         with:
