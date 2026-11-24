@@ -34,6 +34,7 @@ The TX15 hardware displayed the optional Update module button, and the command s
 - EdgeTX radio firmware is maintained separately; it is not built or shipped by Anchor.
 - Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
+- [USB web flashing guide](docs/USB-FLASHING.md): step-by-step browser installation with screenshots, erase choices, and recovery instructions.
 
 Firmware binaries and SHA-256 manifests are generated as GitHub Actions artifacts rather than stored in source control. Refer to the build run for the matching checksums.
 
@@ -98,6 +99,10 @@ See the [Espressif ESP32-C5 esptool guide](https://docs.espressif.com/projects/e
 `ANCHOR_DEBUG` defaults to `0` for production. Run `./build-firmware.sh production` or `./build-firmware.sh debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
 
 ## Browser installer (first-time USB setup)
+
+Follow the [illustrated USB web flashing guide](docs/USB-FLASHING.md) for
+each dialog and choice, including port selection, the erase option,
+installation confirmation, and completion.
 
 A static, no-command-line installer is provided in [`installer/`](installer/).
 It uses [ESP Web Tools](https://esphome.github.io/esp-web-tools/) and Chrome or
