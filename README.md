@@ -100,3 +100,31 @@ See the [Espressif ESP32-C5 esptool guide](https://docs.espressif.com/projects/e
 ## Production and diagnostic builds
 
 `ANCHOR_DEBUG` defaults to `0` for production. Run `./ANCHOR/build-firmware.sh production` or `./ANCHOR/build-firmware.sh debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
+
+## Browser installer (first-time USB setup)
+
+A static, no-command-line installer is provided in [`installer/`](installer/).
+It uses [ESP Web Tools](https://esphome.github.io/esp-web-tools/) and Chrome or
+Edge desktop Web Serial to program a connected **XIAO ESP32-C5**. Users select
+**Production** or **Debug**, choose their USB serial port, and confirm flashing.
+The installer uses the same pinned-source **full** image as our CI firmware
+artifacts; there is no separate, untracked firmware image or UF2 bootloader.
+
+The [`ANCHOR C5 firmware` GitHub Actions workflow](../.github/workflows/anchor-firmware.yml)
+builds both variants, checks the images, generates ESP Web Tools manifests,
+provides a downloadable `ANCHOR-browser-installer-*` site artifact, and attempts
+to publish the site to GitHub Pages on integration-branch pushes or manual runs.
+The proposed site URL is:
+
+**https://doncuppjr.github.io/HeadTracker/**
+
+**Site availability requires the repository's GitHub Pages source to be set to
+GitHub Actions** in Settings > Pages. If that has not been configured, the
+website may be unavailable even while firmware and installer artifacts build
+successfully. Pull requests build but do not deploy the site.
+
+**Caution:** The full image can overwrite pairing settings and NVS. The current
+firmware uses a development OTA password and has not undergone firmware signing
+or complete OTA regression testing. A successful CI build does not authorize
+flight use; verify on hardware first. The OTA application-only `.bin` remains
+available for subsequent updates.
