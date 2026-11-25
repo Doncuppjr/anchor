@@ -22,6 +22,8 @@ selector for XIAO ESP32-C5 and **experimental** ESP32-C3 Super Mini firmware.
 The C3 target has passed compilation and image validation, but **has not been
 hardware-validated**. Check [board wiring](boards/README.md) before testing.
 
+Additional compact ESP32 profiles: XIAO C3/C6, Waveshare C3-Zero and C6 Super Mini; see [boards](boards/README.md). Nordic nRF52840 and Uno/Nano options are classified in [board candidates](boards/candidates/). These are not yet hardware-verified.
+
 ## Repositories and branches
 
 - EdgeTX general-purpose `AT+OTA` extension: [Doncuppjr/edgetx, bluetooth/generic-module-ota](https://github.com/Doncuppjr/edgetx/tree/bluetooth/generic-module-ota)

@@ -41,7 +41,7 @@ c3-supermini:
 build:
 	@mkdir -p '$(OUT)'
 	$(ARDUINO_CLI) compile --fqbn '$(BOARD_FQBN)' \
-	  --build-property 'compiler.cpp.extra_flags=-DANCHOR_DEBUG=$(DEBUG_FLAG) -I$(abspath $(BOARD_HEADER_DIR))' \
+	  --build-property 'compiler.cpp.extra_flags=-DANCHOR_DEBUG=$(DEBUG_FLAG) -I$(abspath $(BOARD_HEADER_DIR))' $(BOARD_EXTRA_BUILD_PROPERTIES) \
 	  --output-dir '$(OUT)' '$(SKETCH)'
 	cp '$(OUT)/anchor.ino.bin' '$(APP)'
 	cp '$(OUT)/anchor.ino.merged.bin' '$(FULL)'

@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - 'refactor/**'
+      - 'feat/**'
     paths:
       - 'firmware/**'
       - 'boards/**'
@@ -34,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [c5, c3-supermini]
+        board: [c5, c3-supermini, xiao-c3, c3-zero, xiao-c6, c6-supermini]
         variant: [production, debug]
     steps:
       - name: Checkout source
@@ -70,6 +71,10 @@ jobs:
           case "$BOARD" in
             c5) prefix=ANCHOR-C5; size=8388608; slot=$((0x300000)); boot=0x2000; fqbn=esp32:esp32:XIAO_ESP32C5 ;;
             c3-supermini) prefix=ANCHOR-C3-SUPERMINI; size=4194304; slot=$((0x1F0000)); boot=0; fqbn=esp32:esp32:esp32c3:PartitionScheme=no_fs,CDCOnBoot=cdc ;;
+            xiao-c3) prefix=ANCHOR-XIAO-C3; size=4194304; slot=$((0x1E0000)); boot=0; fqbn=esp32:esp32:XIAO_ESP32C3:PartitionScheme=min_spiffs,CDCOnBoot=cdc ;;
+            c3-zero) prefix=ANCHOR-C3-ZERO; size=4194304; slot=$((0x1F0000)); boot=0; fqbn=esp32:esp32:waveshare_esp32_c3_zero:PartitionScheme=no_fs,CDCOnBoot=cdc ;;
+            xiao-c6) prefix=ANCHOR-XIAO-C6; size=4194304; slot=$((0x1F0000)); boot=0; fqbn=esp32:esp32:XIAO_ESP32C6:CDCOnBoot=cdc ;;
+            c6-supermini) prefix=ANCHOR-C6-SUPERMINI; size=4194304; slot=$((0x1E0000)); boot=0; fqbn=esp32:esp32:makergo_c6_supermini:PartitionScheme=min_spiffs,CDCOnBoot=cdc ;;
             *) exit 2 ;;
           esac
           out="dist/$BOARD/$VARIANT"
