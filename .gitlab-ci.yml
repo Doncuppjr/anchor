@@ -13,7 +13,6 @@ test:
   script:
     - apt-get update -qq && apt-get install -y make g++ python3
     - make test
-    - python3 -m unittest discover -s tests -p test_installer.py -v
 firmware:
   stage: build
   parallel:
@@ -75,6 +74,7 @@ installer:
     - python3 installer/generate-site.py --dist dist --output site --version "$CI_COMMIT_SHORT_SHA" --boards c5 c3-supermini
     - test -f site/index.html
     - test -f site/boards.json
+    - python3 -m unittest discover -s tests -p test_installer.py -v
   artifacts:
     paths: [site/]
     expire_in: 30 days
