@@ -67,6 +67,8 @@ On 25 November 2026, the TX15/C5 bench passed:
   restoration over repeated sessions.
 - Trainer channel mapping/direction and automatic reconnection after power
   cycling either device in both startup orders.
+- A fresh Wi-Fi OTA test: invalid-image rejection, verified application upload
+  in 11.9 seconds and operator-confirmed Trainer operation after restart.
 
 The interrupted-write recovery recorded zero UART errors and RX overruns,
 with a maximum USB service gap of 1.028 ms. Normal Bluetooth FIFO sizes
