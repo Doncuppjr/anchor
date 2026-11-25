@@ -16,6 +16,7 @@
 #endif
 #include <BLE.h>
 #include "trainer_protocol.h"
+#include "uart_maintenance.h"
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -48,6 +49,7 @@ static BLEClient client;
 static bool telemetryRole=false, telemetryForcePending=false;
 static bool anchorOtaPending=false,anchorOtaActive=false,anchorOtaUploading=false;
 static bool anchorOtaBle=false;
+static UartMaintenanceGate uartMaintenance;
 static bool anchorOtaSuccess=false,anchorOtaHeaderValid=false;
 static uint32_t anchorOtaLastActivity=0,anchorOtaRestartAt=0;
 static uint32_t anchorOtaDisableHighSince=0;
@@ -179,6 +181,7 @@ static const uint32_t INIT_STAGE_TIMEOUT_MS=4000;
 static const uint32_t INIT_FIRST_BAUD_TIMEOUT_MS=4000;
 static const uint32_t INIT_RECOVERY_COOLDOWN_MS=12000;
 static void initStart(){
+ uartMaintenance.reset();
  initBootFallbackActive=false;
  initStage=INIT_WAIT_BAUD;initStageAt=initCycleAt=millis();
  // Keep a pending reset across a PH11 cycle only until it has completed.
@@ -678,6 +681,7 @@ static void anchorOtaPoll(){
 // Treat PH11 as the authoritative Bluetooth enable. Keep BLE memory allocated
 // so BLE.begin() can run after BLE.end(false) without resetting the bridge.
 static void radioOff(){
+  uartMaintenance.reset();
   // OTA is a deliberate maintenance session; do not sleep mid-flash.
   if(anchorOtaActive || anchorOtaPending)return;
   if(telemetryRole){
@@ -896,26 +900,35 @@ static void pollLinkTune(){
 static void at(const String& cmd){
  if(!enEnabled)return;
  // Query only during the non-streaming initialization phase.
- #if defined(ANCHOR_TEST_ROM_DOWNLOAD) && ANCHOR_TEST_ROM_DOWNLOAD
+ if(cmd=="AT+UPDATE=UART"){
+   if(initStage!=INIT_WAIT_ROLE || anchorOtaActive || anchorOtaPending ||
+      workerActive || bleReady){reply("ERROR");return;}
+   uartMaintenance.arm(millis(),true);
+   initStageAt=0; // Maintenance has its own bounded authorization deadline.
+   bleStartPending=false;autoReconnectPending=false;
+   reply("OK+UPDATE:UART");return;
+ }
  if(cmd=="AT+DOWNLOAD"){
-   if(initStage!=INIT_WAIT_ROLE || anchorOtaActive || anchorOtaPending){
-     reply("ERROR");return;
-   }
+   if(!uartMaintenance.take(millis(),initStage==INIT_WAIT_ROLE) ||
+      anchorOtaActive || anchorOtaPending){reply("ERROR");return;}
    reply("OK+DOWNLOAD");Serial1.flush();
 #if CONFIG_IDF_TARGET_ESP32C3
+   static_assert(RX_PIN==20 && TX_PIN==21,"ROM UART0 pads required");
    REG_SET_BIT(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
 #elif CONFIG_IDF_TARGET_ESP32C5
+   static_assert(RX_PIN==12 && TX_PIN==11,"ROM UART0 pads required");
    REG_SET_FIELD(LP_AON_SYS_CFG_REG, LP_AON_FORCE_DOWNLOAD_BOOT, 1);
+#else
+#error Unsupported ROM download target
 #endif
-   ESP.restart();
-   return;
+   ESP.restart();return;
  }
- #endif
+ if(uartMaintenance.armed()){reply("ERROR");return;}
  if(cmd=="AT+CAPS?"){
    if(anchorOtaActive || anchorOtaPending || initStage!=INIT_WAIT_ROLE){
      reply("ERROR");return;
    }
-   reply("OK+CAPS:1,UPDATE_WIFI,UPDATE_BLE");return;
+   reply("OK+CAPS:1,UPDATE_WIFI,UPDATE_BLE,UPDATE_UART");return;
  }
  if(cmd=="AT+OTA" || cmd=="AT+UPDATE=WIFI" || cmd=="AT+UPDATE=BLE"){
    if(anchorOtaActive || anchorOtaPending){
@@ -961,7 +974,7 @@ static void at(const String& cmd){
   reply("OK+Txpw:"+cmd.substring(7));
   // Announce extensions before Central: so older radios simply ignore them.
   // New radios never need to probe a legacy module with an unknown command.
-  reply("OK+CAPS:1,UPDATE_WIFI,UPDATE_BLE");
+  reply("OK+CAPS:1,UPDATE_WIFI,UPDATE_BLE,UPDATE_UART");
   replyCentral();return;
  }
  if(cmd=="AT+ROLE0"){
@@ -1175,6 +1188,11 @@ void setup(){
  ANCHOR_DIAG_PRINTF("ANCHOR BLE=%d savedPeer=%s factoryBaud=%lu\n",bleReady,savedPeer.c_str(),(unsigned long)uartBaud);
 }
 void loop(){
+ if(uartMaintenance.expired(millis())){
+   uartMaintenance.reset();requestEdgeTxReset();
+   initStageAt=millis();
+ }
+
  if(anchorOtaActive || anchorOtaPending){
    anchorOtaPoll();
    delay(1);

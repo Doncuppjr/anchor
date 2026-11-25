@@ -53,6 +53,8 @@ test:
 	@mkdir -p build
 	$(CXX) -std=c++17 -Wall -Wextra -Werror tests/test_trainer_protocol.cpp -o build/test_trainer_protocol
 	./build/test_trainer_protocol
+	$(CXX) -std=c++17 -Wall -Wextra -Werror tests/test_uart_maintenance.cpp -o build/test_uart_maintenance
+	./build/test_uart_maintenance
 clean:
 	rm -rf build dist
 help:
