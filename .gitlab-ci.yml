@@ -1,0 +1,79 @@
+stages: [test, build, package]
+default:
+  image: ubuntu:24.04
+  interruptible: true
+variables:
+  DEBIAN_FRONTEND: noninteractive
+  ARDUINO_DIRECTORIES_DATA: "$CI_PROJECT_DIR/.arduino/data"
+  ARDUINO_DIRECTORIES_DOWNLOADS: "$CI_PROJECT_DIR/.arduino/downloads"
+  ARDUINO_DIRECTORIES_USER: "$CI_PROJECT_DIR/.arduino/user"
+test:
+  stage: test
+  script:
+    - apt-get update -qq && apt-get install -y make g++ python3
+    - make test
+    - python3 -m unittest discover -s tests -p test_installer.py -v
+firmware:
+  stage: build
+  parallel:
+    matrix:
+      - BOARD: [c5, c3-supermini]
+        PROFILE: [production, debug]
+  cache:
+    key: "arduino-1.6.0-esp32-4.0.0-$BOARD"
+    paths:
+      - .arduino/
+  before_script:
+    - apt-get update -qq && apt-get install -y curl ca-certificates make g++ python3
+    - mkdir -p "$CI_PROJECT_DIR/.arduino/bin"
+    - curl -fsSL --retry 3 https://github.com/arduino/arduino-cli/releases/download/v1.6.0/arduino-cli_1.6.0_Linux_64bit.tar.gz | tar -xz -C "$CI_PROJECT_DIR/.arduino/bin" arduino-cli
+    - export PATH="$CI_PROJECT_DIR/.arduino/bin:$PATH"
+    - arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    - arduino-cli core install esp32:esp32@4.0.0 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+  script:
+    - make build BOARD="$BOARD" PROFILE="$PROFILE"
+    - |
+      case "$BOARD" in
+        c5) fqbn=esp32:esp32:XIAO_ESP32C5; boot=0x2000 ;;
+        c3-supermini) fqbn=esp32:esp32:esp32c3:PartitionScheme=no_fs,CDCOnBoot=cdc; boot=0 ;;
+      esac
+      out="dist/$BOARD/$PROFILE"
+      python3 - "$out" "$boot" <<'PY'
+      from pathlib import Path
+      import sys
+      d=Path(sys.argv[1])
+      app=next(d.glob('*-app.bin')).read_bytes()
+      full=next(d.glob('*-full.bin')).read_bytes()
+      assert full[int(sys.argv[2],0)] == 0xe9
+      assert full[0x8000:0x8002] == bytes([0xaa,0x50])
+      assert full[0x10000:0x10000+len(app)] == app
+      PY
+      printf 'git_commit=%s\nvariant=%s\nboard=%s\narduino_cli=1.6.0\nesp32_core=4.0.0\n' "$CI_COMMIT_SHA" "$PROFILE" "$fqbn" > "$out/BUILD-METADATA.txt"
+      app=$(find "$out" -name '*-app.bin' -print -quit)
+      grep -aFq 'AT+OTA' "$app"
+      grep -aFq 'ANCHOR Chain' "$app"
+      if [ "$PROFILE" = production ]; then
+        ! grep -aFq 'INJECTED_DISCONNECT previouslyConnected' "$app"
+        ! grep -aFq 'TELEMTEST queued=' "$app"
+      else
+        grep -aFq 'INJECTED_DISCONNECT previouslyConnected' "$app"
+        grep -aFq 'TELEMTEST queued=' "$app"
+      fi
+  artifacts:
+    name: "ANCHOR-$BOARD-$PROFILE-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/$BOARD/$PROFILE/*-app.bin
+      - dist/$BOARD/$PROFILE/*-full.bin
+      - dist/$BOARD/$PROFILE/SHA256SUMS
+      - dist/$BOARD/$PROFILE/BUILD-METADATA.txt
+    expire_in: 30 days
+installer:
+  stage: package
+  script:
+    - apt-get update -qq && apt-get install -y python3
+    - python3 installer/generate-site.py --dist dist --output site --version "$CI_COMMIT_SHORT_SHA" --boards c5 c3-supermini
+    - test -f site/index.html
+    - test -f site/boards.json
+  artifacts:
+    paths: [site/]
+    expire_in: 30 days
