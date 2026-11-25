@@ -2,6 +2,7 @@
 """Generate per-board ESP Web Tools manifests from validated firmware artifacts."""
 import argparse
 import html
+import hashlib
 import json
 import re
 import shutil
@@ -57,6 +58,13 @@ def build_site(dist, output, version, boards):
             assert image[0x8000:0x8002] == bytes((0xaa, 0x50)), f'{board}: invalid partition table'
             assert image[0x10000:0x10000 + len(app)] == app, f'{board}: app mismatch'
             shutil.copy2(source / firmware, target / firmware)
+            app_name = f'{prefix}-{variant}-app.bin'
+            shutil.copy2(source / app_name, target / app_name)
+            (target / 'ota.json').write_text(json.dumps({
+                'board': board, 'profile': variant, 'version': version,
+                'chipFamily': cfg['BOARD_CHIP_FAMILY'], 'path': app_name,
+                'size': len(app), 'sha256': hashlib.sha256(app).hexdigest(),
+            }, indent=2) + '\n')
             for extra in ('SHA256SUMS', 'BUILD-METADATA.txt'):
                 shutil.copy2(source / extra, target / extra)
             manifest = {

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Static installer regression tests (run after local board builds)."""
 import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,6 +38,14 @@ class InstallerTest(unittest.TestCase):
                     image = path / manifest['builds'][0]['parts'][0]['path']
                     self.assertEqual(image.stat().st_size, size)
                     self.assertEqual(manifest['version'], 'test-version')
+                    ota = json.loads((path / 'ota.json').read_text())
+                    app = (path / ota['path']).read_bytes()
+                    self.assertEqual(ota['board'], board)
+                    self.assertEqual(ota['profile'], variant)
+                    self.assertEqual(ota['chipFamily'], family)
+                    self.assertEqual(ota['size'], len(app))
+                    self.assertEqual(ota['sha256'], hashlib.sha256(app).hexdigest())
+                    self.assertEqual(app[0], 0xe9)
 
 
 if __name__ == '__main__':

@@ -45,6 +45,15 @@
     <p>Same features plus USB bench commands and verbose logging. For hardware testing.</p>
     <div id="debug-installer"></div>
   </section>
+  <section class="panel">
+    <h2>Bluetooth update (experimental)</h2>
+    <p>Enter Bluetooth update mode on the module. When your operating system asks for a pairing PIN, enter the six digits shown on the radio. Select the matching board and firmware below. This replaces only the application.</p>
+    <label for="ota-profile">Firmware</label>
+    <select id="ota-profile"><option value="debug">Diagnostic</option><option value="production">Production</option></select>
+    <button class="button" id="ble-update">Connect and update over Bluetooth</button>
+    <progress id="ble-progress" value="0" max="1" style="width:100%"></progress>
+    <p id="ble-status" role="status"></p>
+  </section>
   <h2>First-time installation</h2>
   <ol>
     <li>Choose the <strong>exact board model</strong> above. Selecting a different chip family can make the image unusable.</li>
@@ -89,6 +98,72 @@
       experimentalWarning.hidden = !info.experimental;
       for (const profile of ['production', 'debug']) showInstallButton(profile, board);
     }
+    const otaService = '78a10000-67e4-4b49-a263-31b6e44f1000';
+    const otaWrite = '78a10001-67e4-4b49-a263-31b6e44f1000';
+    const otaStatus = '78a10002-67e4-4b49-a263-31b6e44f1000';
+    const bleButton = document.querySelector('#ble-update');
+    const bleStatus = document.querySelector('#ble-status');
+    const bleProgress = document.querySelector('#ble-progress');
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    async function waitAck(status, expected, offset) {
+      const deadline = performance.now() + 15000;
+      while (performance.now() < deadline) {
+        const v = await status.readValue();
+        if (v.byteLength !== 5) throw new Error('Invalid OTA status');
+        if (v.getUint8(0) === 3) throw new Error('Module rejected update');
+        if (v.getUint8(0) === expected && v.getUint32(1,true) === offset) return;
+        await wait(10);
+      }
+      throw new Error('Module acknowledgement timed out');
+    }
+    function packet(op, number, bytes = new Uint8Array(0)) {
+      const b = new Uint8Array(5 + bytes.length);
+      b[0] = op; new DataView(b.buffer).setUint32(1,number,true); b.set(bytes,5);
+      return b;
+    }
+    bleButton.addEventListener('click', async () => {
+      if (!navigator.bluetooth) {bleStatus.textContent='Web Bluetooth is unavailable. Use a supported Chrome or Edge browser.';return;}
+      if (!Object.hasOwn(boards, select.value)) return;
+      const board = select.value, profile = document.querySelector('#ota-profile').value;
+      bleButton.disabled = true; select.disabled = true; bleProgress.value = 0;
+      let device, writer, finished = false;
+      try {
+        // Request device directly within the user gesture, before network awaits.
+        device = await navigator.bluetooth.requestDevice({filters:[{services:[otaService]}]});
+        bleStatus.textContent='Downloading and checking firmware...';
+        const base = './' + board + '/' + profile + '/';
+        const m = await fetch(base+'ota.json').then(r=>{if(!r.ok)throw new Error('OTA manifest unavailable');return r.json();});
+        if(m.board!==board || m.profile!==profile || m.chipFamily!==boards[board].chipFamily)throw new Error('Wrong firmware manifest');
+        const data = new Uint8Array(await fetch(base+m.path).then(r=>{if(!r.ok)throw new Error('Firmware unavailable');return r.arrayBuffer();}));
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),b=>b.toString(16).padStart(2,'0')).join('');
+        if(data.length!==m.size || hash!==m.sha256)throw new Error('Firmware integrity check failed');
+        const server = await device.gatt.connect();
+        const svc = await server.getPrimaryService(otaService);
+        writer = await svc.getCharacteristic(otaWrite);
+        const status = await svc.getCharacteristic(otaStatus);
+        await writer.writeValueWithResponse(packet(1,data.length));
+        await waitAck(status,1,0);
+        // Conservative default ATT MTU (23): 20-byte writes, 15 data bytes.
+        // Larger packets will be enabled after platform MTU testing.
+        for(let offset=0;offset<data.length;) {
+          const chunk=data.subarray(offset,offset+15);
+          await writer.writeValueWithResponse(packet(2,offset,chunk));
+          offset+=chunk.length;
+          await waitAck(status,1,offset);
+          bleProgress.value=offset/data.length;
+          bleStatus.textContent='Uploading: '+Math.floor(100*offset/data.length)+'%';
+        }
+        await writer.writeValueWithResponse(Uint8Array.of(3));
+        await waitAck(status,2,data.length);
+        finished=true;bleStatus.textContent='Module verified the image and selected it for boot. Check firmware after restart.';
+      } catch(e) {
+        if(writer && !finished && device?.gatt.connected)try{await writer.writeValueWithResponse(Uint8Array.of(4));}catch{}
+        bleStatus.textContent='Update not confirmed: '+e.message;
+      } finally {
+        if(device?.gatt.connected)device.gatt.disconnect();
+        bleButton.disabled=false;select.disabled=false;
+      }
+    });
     select.disabled = true;
     fetch('./boards.json', {cache: 'no-store'})
       .then(response => {if (!response.ok) throw new Error('Board metadata unavailable'); return response.json();})

@@ -24,6 +24,16 @@
 #include <esp_app_desc.h>
 #include <esp_mac.h>
 #include <esp_sleep.h>
+#include <esp_random.h>
+#include <bootloader_random.h>
+#include <esp_image_format.h>
+#include <esp_chip_info.h>
+#include <soc/soc.h>
+#if CONFIG_IDF_TARGET_ESP32C3
+#include <soc/rtc_cntl_reg.h>
+#elif CONFIG_IDF_TARGET_ESP32C5
+#include <soc/lp_aon_reg.h>
+#endif
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
@@ -37,6 +47,7 @@ static BLEClient client;
 // BLE-only; not Bluetooth Classic SPP.
 static bool telemetryRole=false, telemetryForcePending=false;
 static bool anchorOtaPending=false,anchorOtaActive=false,anchorOtaUploading=false;
+static bool anchorOtaBle=false;
 static bool anchorOtaSuccess=false,anchorOtaHeaderValid=false;
 static uint32_t anchorOtaLastActivity=0,anchorOtaRestartAt=0;
 static uint32_t anchorOtaDisableHighSince=0;
@@ -44,7 +55,17 @@ static bool anchorOtaCancelDeferred=false;
 static WebServer anchorOtaWeb(80);
 static constexpr uint32_t ANCHOR_OTA_IDLE_MS=600000;
 static const char ANCHOR_OTA_SSID[]="ANCHOR Chain";
-static const char ANCHOR_OTA_PASS[]="anchor-update";
+static char anchorOtaPin[7]={};
+static char anchorOtaPassword[9]={};
+static void anchorGeneratePin(){
+  // No RF is necessarily running during the pre-role AT handshake.
+  bootloader_random_enable();
+  uint32_t random;
+  do {random=esp_random();} while(random>=4294000000UL);
+  bootloader_random_disable();
+  snprintf(anchorOtaPin,sizeof(anchorOtaPin),"%06lu",(unsigned long)(random%1000000));
+  snprintf(anchorOtaPassword,sizeof(anchorOtaPassword),"BT%s",anchorOtaPin);
+}
 static bool persistedTelemetryRole=false;
 // EdgeTX supplies its configured Bluetooth name with AT+NAME.
 // Retain it across BLE restarts and bridge-only reboots.
@@ -391,14 +412,8 @@ static void clearConnection(bool emitLost){
 }
 static void pollWorker();
 
-static bool anchorAuthorized(){
-  if(anchorOtaWeb.authenticate("admin",ANCHOR_OTA_PASS)) return true;
-  anchorOtaWeb.requestAuthentication();
-  return false;
-}
 static void anchorOtaRoutes(){
   anchorOtaWeb.on("/",HTTP_GET,[](){
-    if(!anchorAuthorized())return;
     anchorOtaLastActivity=millis();
     anchorOtaWeb.send(200,"text/html",
       "<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -410,14 +425,12 @@ static void anchorOtaRoutes(){
       "<p>Leave the TX15 powered on during the update.</p>");
   });
   anchorOtaWeb.on("/update",HTTP_POST,[](){
-    if(!anchorAuthorized())return;
     bool ok=anchorOtaSuccess && !Update.hasError();
     anchorOtaWeb.send(ok?200:400,"text/plain",
       ok?"Update verified. ANCHOR will restart.":"Firmware upload failed; existing firmware retained.");
     anchorOtaUploading=false;
     if(ok)anchorOtaRestartAt=millis()+1500;
   },[](){
-    if(!anchorOtaWeb.authenticate("admin",ANCHOR_OTA_PASS))return;
     HTTPUpload& upload=anchorOtaWeb.upload();
     anchorOtaLastActivity=millis();
     if(upload.status==UPLOAD_FILE_START){
@@ -466,9 +479,124 @@ static void anchorOtaRoutes(){
     }
   });
   anchorOtaWeb.onNotFound([](){
-    if(!anchorAuthorized())return;
     anchorOtaWeb.send(404,"text/plain","Not found");
   });
+}
+// Dedicated maintenance service. Callbacks only enqueue bounded requests;
+// all flash writes and Update lifecycle operations execute on the main task.
+static const BLEUUID otaServiceId("78a10000-67e4-4b49-a263-31b6e44f1000");
+static const BLEUUID otaWriteId("78a10001-67e4-4b49-a263-31b6e44f1000");
+static const BLEUUID otaStatusId("78a10002-67e4-4b49-a263-31b6e44f1000");
+static BLEServer otaServer;
+static BLECharacteristic otaWrite,otaStatus;
+struct OtaRequest { uint16_t owner; uint16_t len; uint8_t bytes[244]; };
+static QueueHandle_t otaQueue=nullptr;
+static uint32_t otaExpected=0,otaOffset=0;
+static volatile bool otaDisconnected=false;
+static uint16_t otaOwner=0xffff;
+static volatile uint32_t otaAuthFailures=0;
+static bool otaImageHeaderValid(const uint8_t* header){
+  uint32_t magic;memcpy(&magic,header+32,4);
+  esp_image_header_t image;memcpy(&image,header,sizeof(image));
+#if CONFIG_IDF_TARGET_ESP32C3
+  const uint16_t chip=5;
+#elif CONFIG_IDF_TARGET_ESP32C5
+  const uint16_t chip=23;
+#else
+#error Unsupported OTA target
+#endif
+  return header[0]==0xe9 && magic==ESP_APP_DESC_MAGIC_WORD && image.chip_id==chip;
+}
+static void otaReport(uint8_t status){
+  uint8_t b[5]={status};
+  memcpy(b+1,&otaOffset,4);
+  otaStatus.setValue(b,sizeof(b));
+}
+static void otaBleAbort(){
+  if(anchorOtaUploading)Update.abort();
+  anchorOtaUploading=false;otaExpected=0;otaOffset=0;
+  otaReport(3);
+}
+static bool otaBleBegin(){
+  otaQueue=xQueueCreate(2,sizeof(OtaRequest));
+  if(!otaQueue || !BLE.begin("ANCHOR UPDATE"))return false;
+  BLE.setMTU(247);
+  auto security=BLE.getSecurity();
+  security.setIOCapability(BLEIOCapability::DisplayOnly);
+  security.setAuthenticationMode(false,true,true);
+  security.setStaticPassKey(strtoul(anchorOtaPin,nullptr,10));
+  security.setForceAuthentication(true);
+  security.onAuthenticationComplete([](const BLEConnInfo&,bool success){
+    if(!success)__atomic_add_fetch(&otaAuthFailures,1,__ATOMIC_RELAXED);
+  });
+  otaServer=BLE.createServer();
+  if(!otaServer)return false;
+  BLEService svc=otaServer.createService(otaServiceId);
+  if(!svc)return false;
+  otaWrite=svc.createCharacteristic(otaWriteId,BLEProperty::Write,BLEPermission::WriteAuthenticated);
+  otaStatus=svc.createCharacteristic(otaStatusId,BLEProperty::Read,BLEPermission::ReadAuthenticated);
+  if(!otaWrite || !otaStatus)return false;
+  otaReport(0);
+  otaServer.onDisconnect([](BLEServer&,const BLEConnInfo&,uint8_t){
+    __atomic_store_n(&otaDisconnected,true,__ATOMIC_RELEASE);
+  });
+  otaWrite.onWrite([](BLECharacteristic &chr,const BLEConnInfo& conn){
+    if(!conn.isEncrypted() || !conn.isAuthenticated())return;
+    OtaRequest r{};size_t n=0;const uint8_t* b=chr.getValue(&n);
+    if(!b || !n || n>sizeof(r.bytes))return;
+    r.owner=conn.getHandle();r.len=n;memcpy(r.bytes,b,n);
+    xQueueSend(otaQueue,&r,0);
+  });
+  if(!otaServer.start())return false;
+  BLEAdvertising adv=BLE.getAdvertising();adv.addServiceUUID(otaServiceId);
+  return (bool)adv.start();
+}
+static void otaBlePoll(){
+  if(__atomic_load_n(&otaAuthFailures,__ATOMIC_RELAXED)>=5 && !anchorOtaSuccess){
+    if(anchorOtaUploading)otaBleAbort();
+    ESP.restart();return;
+  }
+  if(__atomic_exchange_n(&otaDisconnected,false,__ATOMIC_ACQ_REL) && !anchorOtaSuccess){
+    if(anchorOtaUploading)otaBleAbort();
+    xQueueReset(otaQueue);otaOwner=0xffff;
+    BLE.startAdvertising();
+  }
+  OtaRequest r;
+  if(!xQueueReceive(otaQueue,&r,0))return;
+  anchorOtaLastActivity=millis();
+  if(anchorOtaSuccess)return;
+  if(otaOwner!=0xffff && r.owner!=otaOwner)return;
+  const uint8_t op=r.bytes[0];
+  if(op==1 && r.len==5 && !anchorOtaUploading){
+    memcpy(&otaExpected,r.bytes+1,4);otaOffset=0;
+    const esp_partition_t* part=esp_ota_get_next_update_partition(nullptr);
+    if(!part || otaExpected<36 || otaExpected>part->size ||
+       !Update.begin(otaExpected,U_FLASH)){otaBleAbort();return;}
+    otaOwner=r.owner;anchorOtaUploading=true;anchorOtaHeaderValid=false;otaReport(1);
+  }else if(op==2 && r.len>5 && anchorOtaUploading){
+    uint32_t offset;memcpy(&offset,r.bytes+1,4);
+    size_t n=r.len-5;
+    if(offset!=otaOffset || n>otaExpected-otaOffset){otaBleAbort();return;}
+    // The application descriptor may straddle short ATT packets.
+    static uint8_t header[36];
+    if(otaOffset<sizeof(header)){
+      size_t copy=std::min<size_t>(n,sizeof(header)-otaOffset);
+      memcpy(header+otaOffset,r.bytes+5,copy);
+      if(otaOffset+copy==sizeof(header)){
+        if(!otaImageHeaderValid(header)){otaBleAbort();return;}
+        anchorOtaHeaderValid=true;
+      }
+    }
+    if(Update.write(r.bytes+5,n)!=n){otaBleAbort();return;}
+    otaOffset+=n;otaReport(1);
+  }else if(op==3 && r.len==1 && anchorOtaUploading){
+    if(otaOffset!=otaExpected || !anchorOtaHeaderValid || !Update.end()){
+      otaBleAbort();return;
+    }
+    anchorOtaUploading=false;anchorOtaSuccess=true;otaReport(2);
+    anchorOtaRestartAt=millis()+4000;
+  }else if(op==4 && r.len==1){otaBleAbort();}
+  else otaBleAbort();
 }
 static void anchorOtaBegin(){
   if(anchorOtaActive)return;
@@ -485,8 +613,12 @@ static void anchorOtaBegin(){
     telemetryWrite=BLECharacteristic();
   }
   subscribed=false;telemetryConnected=false;
+  if(anchorOtaBle){
+    if(!otaBleBegin()){ESP.restart();return;}
+    anchorOtaActive=true;anchorOtaLastActivity=millis();return;
+  }
   WiFi.mode(WIFI_AP);
-  if(!WiFi.softAP(ANCHOR_OTA_SSID,ANCHOR_OTA_PASS)){
+  if(!WiFi.softAP(ANCHOR_OTA_SSID,anchorOtaPassword)){
     ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_AP_FAILED restarting");
     ESP.restart();
     return;
@@ -531,7 +663,7 @@ static void anchorOtaPoll(){
     return;
   }
   if(!anchorOtaActive)return;
-  anchorOtaWeb.handleClient();
+  if(anchorOtaBle)otaBlePoll();else anchorOtaWeb.handleClient();
   if(anchorOtaRestartAt && (int32_t)(millis()-anchorOtaRestartAt)>=0)
     ESP.restart();
   // A broken HTTP upload must not leave maintenance mode active forever.
@@ -763,14 +895,40 @@ static void pollLinkTune(){
 }
 static void at(const String& cmd){
  if(!enEnabled)return;
- if(cmd=="AT+OTA"){
+ // Query only during the non-streaming initialization phase.
+ #if defined(ANCHOR_TEST_ROM_DOWNLOAD) && ANCHOR_TEST_ROM_DOWNLOAD
+ if(cmd=="AT+DOWNLOAD"){
+   if(initStage!=INIT_WAIT_ROLE || anchorOtaActive || anchorOtaPending){
+     reply("ERROR");return;
+   }
+   reply("OK+DOWNLOAD");Serial1.flush();
+#if CONFIG_IDF_TARGET_ESP32C3
+   REG_SET_BIT(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+#elif CONFIG_IDF_TARGET_ESP32C5
+   REG_SET_FIELD(LP_AON_SYS_CFG_REG, LP_AON_FORCE_DOWNLOAD_BOOT, 1);
+#endif
+   ESP.restart();
+   return;
+ }
+ #endif
+ if(cmd=="AT+CAPS?"){
+   if(anchorOtaActive || anchorOtaPending || initStage!=INIT_WAIT_ROLE){
+     reply("ERROR");return;
+   }
+   reply("OK+CAPS:1,UPDATE_WIFI,UPDATE_BLE");return;
+ }
+ if(cmd=="AT+OTA" || cmd=="AT+UPDATE=WIFI" || cmd=="AT+UPDATE=BLE"){
    if(anchorOtaActive || anchorOtaPending){
      reply("OK+OTA");return;
    }
    // EdgeTX sends this at the end of ordinary baud/name/power
    // negotiation, before selecting a streaming Trainer/Telemetry role.
    if(initStage<INIT_WAIT_ROLE){reply("ERROR");return;}
-   reply("OK+OTA");Serial1.flush();
+   anchorGeneratePin();
+   anchorOtaBle=(cmd=="AT+UPDATE=BLE");
+   if(cmd=="AT+OTA")reply("OK+OTA");
+   else reply(String("OK+UPDATE:")+(anchorOtaBle?"BLE,":"WIFI,")+anchorOtaPin);
+   Serial1.flush();
    anchorOtaPending=true;
    ANCHOR_DIAG_PRINTLN("ANCHOR_OTA_REQUEST accepted");
    return;
@@ -800,7 +958,11 @@ static void at(const String& cmd){
  }
  if(cmd.startsWith("AT+TXPW")){
   initAdvance(INIT_WAIT_ROLE);
-  reply("OK+Txpw:"+cmd.substring(7));replyCentral();return;
+  reply("OK+Txpw:"+cmd.substring(7));
+  // Announce extensions before Central: so older radios simply ignore them.
+  // New radios never need to probe a legacy module with an unknown command.
+  reply("OK+CAPS:1,UPDATE_WIFI,UPDATE_BLE");
+  replyCentral();return;
  }
  if(cmd=="AT+ROLE0"){
    // EdgeTX telemetry mirror uses a Bluetooth peripheral role, not trainer-central.
@@ -922,6 +1084,7 @@ static void usb(const String& cmd){
    return;
  }
  if(cmd=="OTA"){at("AT+OTA");return;}
+ if(cmd=="OTABLE"){at("AT+UPDATE=BLE");return;}
  if(cmd=="TELEMSTART"){
    if(!enEnabled){ANCHOR_DIAG_PRINTLN("TELEMSTART refused, BT enable GPIO inactive");return;}
    telemetryForcePending=true;autoReconnectPending=false;requestScan=false;requestConnect=false;
