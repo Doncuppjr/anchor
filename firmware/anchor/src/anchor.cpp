@@ -36,7 +36,7 @@
 #include <soc/gpio_sig_map.h>
 #if CONFIG_IDF_TARGET_ESP32C3
 #include <soc/rtc_cntl_reg.h>
-#elif CONFIG_IDF_TARGET_ESP32C5
+#elif CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
 #include <soc/lp_aon_reg.h>
 #endif
 #include <freertos/FreeRTOS.h>
@@ -506,9 +506,11 @@ static bool otaImageHeaderValid(const uint8_t* header){
   uint32_t magic;memcpy(&magic,header+32,4);
   esp_image_header_t image;memcpy(&image,header,sizeof(image));
 #if CONFIG_IDF_TARGET_ESP32C3
-  const uint16_t chip=5;
+  const uint16_t chip=ESP_CHIP_ID_ESP32C3;
 #elif CONFIG_IDF_TARGET_ESP32C5
-  const uint16_t chip=23;
+  const uint16_t chip=ESP_CHIP_ID_ESP32C5;
+#elif CONFIG_IDF_TARGET_ESP32C6
+  const uint16_t chip=ESP_CHIP_ID_ESP32C6;
 #else
 #error Unsupported OTA target
 #endif
@@ -929,6 +931,9 @@ static void at(const String& cmd){
    REG_SET_BIT(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
 #elif CONFIG_IDF_TARGET_ESP32C5
    static_assert(RX_PIN==12 && TX_PIN==11,"ROM UART0 pads required");
+   REG_SET_FIELD(LP_AON_SYS_CFG_REG, LP_AON_FORCE_DOWNLOAD_BOOT, 1);
+#elif CONFIG_IDF_TARGET_ESP32C6
+   static_assert(RX_PIN==17 && TX_PIN==16,"ROM UART0 pads required");
    REG_SET_FIELD(LP_AON_SYS_CFG_REG, LP_AON_FORCE_DOWNLOAD_BOOT, 1);
 #else
 #error Unsupported ROM download target

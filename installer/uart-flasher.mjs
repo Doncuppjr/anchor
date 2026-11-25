@@ -28,7 +28,8 @@ export async function verifyFullImage(meta, data, board, profile, family, sha256
 export async function restartRadioModule(loader, family, settle) {
   const registers = {
     "ESP32-C3":[0x60008090,0x60008094,0x600080a8],
-    "ESP32-C5":[0x600b1c00,0x600b1c04,0x600b1c18]
+    "ESP32-C5":[0x600b1c00,0x600b1c04,0x600b1c18],
+    "ESP32-C6":[0x600b1c00,0x600b1c04,0x600b1c18]
   }[family];
   if (!registers) throw new Error("Unsupported module restart target");
   const [config, timeout, protect] = registers;
