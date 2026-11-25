@@ -54,8 +54,15 @@ function fixture(options = {}) {
     fetcher:async url => ({ok:true,json:async () => meta,arrayBuffer:async () => data.buffer}),
     sha256:async () => hash("sha256"),
     loadDependencies:async () => ({Transport,ESPLoader,md5:() => hash("md5")}),
-    lineReader:async (_p,prefix) => prefix === "OK+BRIDGE:" ?
-      "OK+BRIDGE:1,115200,"+(options.recovery?"RECOVERY":"READY") : "OK+DOWNLOAD",
+    lineReader:async (_p,prefix) => {
+      if (prefix === "OK+BRIDGE:") return "OK+BRIDGE:"+(options.legacy?1:2)+
+        ",115200,"+(options.recovery?"RECOVERY":"READY");
+      if (prefix === "OK+BRIDGE:FINISH") {
+        if (options.finishFails) throw new Error("completion acknowledgment timed out");
+        return options.badFinishAck ? "OK+BRIDGE:FINISH_EXTRA" : "OK+BRIDGE:FINISH";
+      }
+      return "OK+DOWNLOAD";
+    },
     settle:async () => {}
   };
   return {calls,args,port};
@@ -66,11 +73,16 @@ test("authorized ROM flow checks image, chip, flash readback, then watchdog rest
   const probe=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+BRIDGE?\r\n");
   const download=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n");
   assert(probe>calls.findIndex(x=>x[0]==="signals")&&probe<download);
-  assert.equal(calls.filter(x=>x[0]==="open").length,1);
+  assert.equal(calls.filter(x=>x[0]==="open").length,2);
   assert.deepEqual(calls.find(x=>x[0]==="connect"),["connect","no_reset"]);
   assert.deepEqual(calls.find(x=>x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n"),["download","AT+DOWNLOAD\r\n"]);
   assert(calls.findIndex(x=>x[0]==="md5")<calls.findIndex(x=>x[0]==="reset"));
-  assert(calls.some(x=>x[0]==="signals"&&x[1].requestToSend===true));
+  assert.equal(result.restartRequested,true);
+  const finish=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+BRIDGE=FINISH\r\n");
+  const reopen=calls.findLastIndex(x=>x[0]==="open");
+  assert(reopen>calls.findLastIndex(x=>x[0]==="reset")&&finish>reopen);
+  assert(calls.findIndex(x=>x[0]==="close")<reopen);
+  assert(!calls.some(x=>x[0]==="signals"&&x[1].requestToSend===true));
   assert.equal(calls.at(-1)[0],"close");
 });
 test("ROM recovery reconnect skips AT download",async () => {
@@ -91,18 +103,18 @@ test("wrong manifest and corrupt SHA prevent opening the maintenance port",async
 test("failed flash readback never requests completion or reset",async () => {
   const {args,calls}=fixture({badMd5:true});
   await assert.rejects(flashViaRadio(args),/checksum mismatch/);
-  assert(!calls.some(x=>x[0]==="reset"||(x[0]==="signals"&&x[1].requestToSend===true)));
+  assert(!calls.some(x=>x[0]==="reset"||(x[0]==="download"&&x[1]==="AT+BRIDGE=FINISH\r\n")));
 });
 test("restart failure is not reported as successful completion",async () => {
   const {args,calls}=fixture({resetFails:true});
   await assert.rejects(flashViaRadio(args),/reset failed/);
-  assert(!calls.some(x=>x[0]==="signals"&&x[1].requestToSend===true));
+  assert(!calls.some(x=>x[0]==="download"&&x[1]==="AT+BRIDGE=FINISH\r\n"));
 });
 test("cancel during flash drops DTR and does not request completion",async () => {
   const controller=new AbortController();
   const {args,calls}=fixture({abortDuringFlash:() => controller.abort()});
   await assert.rejects(flashViaRadio({...args,signal:controller.signal}),/Canceled/);
-  assert(!calls.some(x=>x[0]==="reset"||(x[0]==="signals"&&x[1].requestToSend===true)));
+  assert(!calls.some(x=>x[0]==="reset"||(x[0]==="download"&&x[1]==="AT+BRIDGE=FINISH\r\n")));
   assert(calls.some(x=>x[0]==="signals"&&x[1].dataTerminalReady===false));
 });
 test("ROM checksum parser rejects invalid acknowledgements",() => {
@@ -134,4 +146,18 @@ test("C3/C5 watchdog restart uses each target's maintained ROM reset registers",
     assert.deepEqual(waits,[500]);
   }
   await assert.rejects(restartRadioModule({},"ESP32",async()=>{}),/Unsupported/);
+});
+
+
+test("legacy bridge is rejected before ROM entry or flash",async () => {
+  const {args,calls}=fixture({legacy:true});
+  await assert.rejects(flashViaRadio(args),/updated EdgeTX/);
+  assert(!calls.some(x=>x[0]==="flash"||(x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n")));
+});
+test("missing or invalid completion acknowledgment never reports success",async () => {
+  for (const option of [{finishFails:true},{badFinishAck:true}]) {
+    const {args,calls}=fixture(option);
+    await assert.rejects(flashViaRadio(args),/completion/);
+    assert.equal(calls.at(-1)[0],"close");
+  }
 });

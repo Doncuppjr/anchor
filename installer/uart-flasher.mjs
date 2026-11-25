@@ -121,8 +121,8 @@ export async function flashViaRadio({
     try {await probe.write(new TextEncoder().encode("AT+BRIDGE?\r\n"));}
     finally {probe.releaseLock();}
     const banner = await lineReader(port, "OK+BRIDGE:", signal);
-    if (!/^OK\+BRIDGE:1,115200,(READY|RECOVERY)$/.test(banner))
-      throw new Error("Unsupported radio bridge");
+    if (!/^OK\+BRIDGE:2,115200,(READY|RECOVERY)$/.test(banner))
+      throw new Error("Radio USB bridge requires updated EdgeTX firmware");
     if (banner.endsWith(",READY")) {
       const writer = port.writable.getWriter();
       try {await writer.write(new TextEncoder().encode("AT+DOWNLOAD\r\n"));}
@@ -163,14 +163,30 @@ export async function flashViaRadio({
     // Explicit ROM readback MD5, in addition to the downloaded SHA-256.
     const actual = normalizeRomMd5(await loader.flashMd5sum(0, data.length));
     if (actual !== hex(md5(data))) throw new Error("Flash readback checksum mismatch");
+    check();
     verified = true;
     status("Flash contents verified. Requesting the module watchdog restart...");
     await restartRadioModule(loader, family, settle);
-    // RTS is a completion request to EdgeTX, never an ESP hardware reset.
-    await port.setSignals({dataTerminalReady:true, requestToSend:true});
+    check();
+    // Windows usbser may not propagate RTS-only changes. Reopen the same
+    // authorized port for an acknowledged bridge-management command instead.
+    // No management text is injected into the binary ROM stream.
+    await port.setSignals({dataTerminalReady:false, requestToSend:false});
+    await transport.disconnect(); transport = null; opened = false;
+    check();
+    await port.open({baudRate:115200, bufferSize:4096}); opened = true;
+    await port.setSignals({dataTerminalReady:true, requestToSend:false});
+    check();
+    const finish = port.writable.getWriter();
+    try {await finish.write(new TextEncoder().encode("AT+BRIDGE=FINISH\r\n"));}
+    finally {finish.releaseLock();}
+    const finishAck = await lineReader(port, "OK+BRIDGE:FINISH", signal);
+    if (finishAck !== "OK+BRIDGE:FINISH")
+      throw new Error("Radio did not acknowledge update completion");
+    check();
     await settle(150);
     status("Flash verified. Check the radio for confirmed module restart and Bluetooth restoration.");
-    return {verified:true, board, profile, version:meta.version};
+    return {verified:true, restartRequested:true, board, profile, version:meta.version};
   } catch (e) {
     status((verified ? "Flash verified, restart not confirmed: " : "Update not confirmed: ") +
       e.message + " Reconnect the installer to retry if the radio shows recovery.");

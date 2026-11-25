@@ -58,3 +58,13 @@ from Espressif esptool 5.3.1 because esptool-js 0.7.1 has no C5 watchdog reset.
 Bench status on 25 November 2026: C5 identification, full-image flashing and
 readback passed through a TX15 using Python esptool. A separate watchdog reset
 restored Bluetooth. Browser end-to-end and C3 hardware validation are pending.
+
+
+The installed-module installer requires bridge protocol 2. Older bridge
+versions are rejected before ROM entry. After watchdog restart it closes
+the ROM connection, reopens the same authorized port and sends
+AT+BRIDGE=FINISH before any probe or binary traffic. EdgeTX acknowledges
+OK+BRIDGE:FINISH before beginning normal module initialization. This avoids
+depending on RTS-only control changes, which failed on the Windows bench.
+The acknowledgment confirms receipt of the request; Bluetooth restoration
+still requires the radio's fresh role/identity handshake.
