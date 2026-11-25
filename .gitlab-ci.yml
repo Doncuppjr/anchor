@@ -1,5 +1,6 @@
 stages: [test, build, package]
 default:
+  tags: [firmware, docker, amd64]
   image: ubuntu:24.04
   interruptible: true
 variables:
