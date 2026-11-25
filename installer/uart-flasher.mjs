@@ -45,9 +45,9 @@ async function defaultDependencies() {
   ]);
   return {ESPLoader, Transport, md5};
 }
-export async function readBridgeLine(port, prefix, signal, timeoutMs = 8000) {
+export async function readBridgeLine(port, prefix, signal, timeoutMs = 8000, retryCommand) {
   const reader = port.readable.getReader();
-  let timer, abort, success = false;
+  let timer, retryTimer, abort, success = false;
   try {
     const failed = new Promise((_, reject) => {
       timer = setTimeout(() => {
@@ -61,9 +61,22 @@ export async function readBridgeLine(port, prefix, signal, timeoutMs = 8000) {
       signal?.addEventListener("abort", abort, {once:true});
     });
     let text = "";
+    const retry = Symbol("retry");
+    let pendingRead = reader.read();
     for (;;) {
       if (signal?.aborted) throw new Error("Canceled");
-      const result = await Promise.race([reader.read(), failed]);
+      const waiting = [pendingRead, failed];
+      if (retryCommand) waiting.push(new Promise(resolve => {
+        retryTimer = setTimeout(() => resolve(retry), 500);
+      }));
+      const result = await Promise.race(waiting);
+      clearTimeout(retryTimer);
+      if (result === retry) {
+        const writer = port.writable.getWriter();
+        try {await writer.write(new TextEncoder().encode(retryCommand));}
+        finally {writer.releaseLock();}
+        continue; // Keep the same outstanding read; do not cancel the stream.
+      }
       if (result.done) throw new Error("Serial connection closed");
       text += new TextDecoder().decode(result.value);
       if (text.length > 4096) throw new Error("Unexpected serial data");
@@ -74,9 +87,11 @@ export async function readBridgeLine(port, prefix, signal, timeoutMs = 8000) {
         if (line.startsWith(prefix)) {success = true; return line;}
         if (line === "ERROR") throw new Error("Module rejected maintenance entry");
       }
+      pendingRead = reader.read();
     }
   } finally {
-    clearTimeout(timer); signal?.removeEventListener("abort", abort);
+    clearTimeout(timer); clearTimeout(retryTimer);
+    signal?.removeEventListener("abort", abort);
     if (!success) try {await reader.cancel();} catch {}
     reader.releaseLock();
   }
@@ -114,6 +129,14 @@ export async function flashViaRadio({
     await port.setSignals({dataTerminalReady:true, requestToSend:false});
     abortPort = () => port.setSignals({dataTerminalReady:false, requestToSend:false}).catch(() => {});
     signal?.addEventListener("abort", abortPort, {once:true});
+    status("Waiting for the radio's USB maintenance mode...");
+    // The host can open while radio AT preparation is still finishing.
+    // STATUS does not establish binary forwarding, so it is safe to retry.
+    const ready = port.writable.getWriter();
+    try {await ready.write(new TextEncoder().encode("AT+BRIDGE=STATUS?\r\n"));}
+    finally {ready.releaseLock();}
+    await lineReader(port, "OK+BRIDGE:STATUS,", signal, 8000, "AT+BRIDGE=STATUS?\r\n");
+    check();
     status("Checking radio USB maintenance authorization...");
     // The OS may assert DTR before binary terminal setup. Query only after
     // open/signals have completed; unsolicited banners can be echoed by tty.
@@ -123,6 +146,7 @@ export async function flashViaRadio({
     const banner = await lineReader(port, "OK+BRIDGE:", signal);
     if (!/^OK\+BRIDGE:2,115200,(READY|RECOVERY)$/.test(banner))
       throw new Error("Radio USB bridge requires updated EdgeTX firmware");
+    check();
     if (banner.endsWith(",READY")) {
       const writer = port.writable.getWriter();
       try {await writer.write(new TextEncoder().encode("AT+DOWNLOAD\r\n"));}

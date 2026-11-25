@@ -55,6 +55,10 @@ function fixture(options = {}) {
     sha256:async () => hash("sha256"),
     loadDependencies:async () => ({Transport,ESPLoader,md5:() => hash("md5")}),
     lineReader:async (_p,prefix) => {
+      if (prefix === "OK+BRIDGE:STATUS,") {
+        if (options.notReady) throw new Error("bridge preparation timed out");
+        return "OK+BRIDGE:STATUS,rom=0";
+      }
       if (prefix === "OK+BRIDGE:") return "OK+BRIDGE:"+(options.legacy?1:2)+
         ",115200,"+(options.recovery?"RECOVERY":"READY");
       if (prefix === "OK+BRIDGE:FINISH") {
@@ -72,7 +76,8 @@ test("authorized ROM flow checks image, chip, flash readback, then watchdog rest
   assert.equal(result.verified,true);
   const probe=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+BRIDGE?\r\n");
   const download=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n");
-  assert(probe>calls.findIndex(x=>x[0]==="signals")&&probe<download);
+  const ready=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+BRIDGE=STATUS?\r\n");
+  assert(ready>calls.findIndex(x=>x[0]==="signals")&&ready<probe&&probe<download);
   assert.equal(calls.filter(x=>x[0]==="open").length,2);
   assert.deepEqual(calls.find(x=>x[0]==="connect"),["connect","no_reset"]);
   assert.deepEqual(calls.find(x=>x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n"),["download","AT+DOWNLOAD\r\n"]);
@@ -160,4 +165,27 @@ test("missing or invalid completion acknowledgment never reports success",async 
     await assert.rejects(flashViaRadio(args),/completion/);
     assert.equal(calls.at(-1)[0],"close");
   }
+});
+
+
+test("radio preparation timeout never probes or enters ROM",async () => {
+  const {args,calls}=fixture({notReady:true});
+  await assert.rejects(flashViaRadio(args),/preparation timed out/);
+  assert(!calls.some(x=>x[0]==="flash"||(x[0]==="download"&&x[1]!=="AT+BRIDGE=STATUS?\r\n")));
+});
+test("preparation retry keeps one pending read and releases the serial lock",async () => {
+  let controller;
+  const writes=[];
+  const stream=new ReadableStream({start(c) {controller=c;c.enqueue(new TextEncoder().encode('> Invalid command\r\n'));}});
+  const port={readable:stream,writable:{getWriter:()=>({
+    write:async bytes=>{
+      writes.push(new TextDecoder().decode(bytes));
+      controller.enqueue(new TextEncoder().encode("OK+BRIDGE:STATUS,rom=0\r\n"));
+    },
+    releaseLock:()=>{}
+  })}};
+  assert.equal(await readBridgeLine(port,"OK+BRIDGE:STATUS,",undefined,2500,"AT+BRIDGE=STATUS?\r\n"),
+    "OK+BRIDGE:STATUS,rom=0");
+  assert.deepEqual(writes,["AT+BRIDGE=STATUS?\r\n"]);
+  assert.equal(stream.locked,false);
 });
