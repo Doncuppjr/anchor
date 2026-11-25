@@ -74,8 +74,8 @@ remained unchanged.
 
 BLE OTA protocol testing with a Linux client also passed fresh session-PIN
 authentication, partial-upload abort and full application validation/boot
-selection. Trainer operation after this BLE restart is awaiting operator
-confirmation. Browser end-to-end validation, C3/CC2540 hardware and Telemetry
+selection. The operator also confirmed Trainer channel operation returned
+after the BLE update restart. Browser end-to-end validation, C3/CC2540 hardware and Telemetry
 regression checks remain pending. Physical Back dismissal was
 intermittent. A separate popup-focus fix passed its host regression test and
 CI, then closed promptly on the first RTN tap in a repeated no-write cable-
