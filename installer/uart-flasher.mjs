@@ -98,6 +98,11 @@ export async function flashViaRadio({
     abortPort = () => port.setSignals({dataTerminalReady:false, requestToSend:false}).catch(() => {});
     signal?.addEventListener("abort", abortPort, {once:true});
     status("Checking radio USB maintenance authorization...");
+    // The OS may assert DTR before binary terminal setup. Query only after
+    // open/signals have completed; unsolicited banners can be echoed by tty.
+    const probe = port.writable.getWriter();
+    try {await probe.write(new TextEncoder().encode("AT+BRIDGE?\r\n"));}
+    finally {probe.releaseLock();}
     const banner = await lineReader(port, "OK+BRIDGE:", signal);
     if (!/^OK\+BRIDGE:1,115200,(READY|RECOVERY)$/.test(banner))
       throw new Error("Unsupported radio bridge");

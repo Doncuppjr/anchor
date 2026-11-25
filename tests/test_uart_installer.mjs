@@ -63,16 +63,19 @@ function fixture(options = {}) {
 test("authorized ROM flow checks image, chip, flash readback, then software restart",async () => {
   const {args,calls}=fixture();const result=await flashViaRadio(args);
   assert.equal(result.verified,true);
+  const probe=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+BRIDGE?\r\n");
+  const download=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n");
+  assert(probe>calls.findIndex(x=>x[0]==="signals")&&probe<download);
   assert.equal(calls.filter(x=>x[0]==="open").length,1);
   assert.deepEqual(calls.find(x=>x[0]==="connect"),["connect","no_reset"]);
-  assert.deepEqual(calls.find(x=>x[0]==="download"),["download","AT+DOWNLOAD\r\n"]);
+  assert.deepEqual(calls.find(x=>x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n"),["download","AT+DOWNLOAD\r\n"]);
   assert(calls.findIndex(x=>x[0]==="md5")<calls.findIndex(x=>x[0]==="reset"));
   assert(calls.some(x=>x[0]==="signals"&&x[1].requestToSend===true));
   assert.equal(calls.at(-1)[0],"close");
 });
 test("ROM recovery reconnect skips AT download",async () => {
   const {args,calls}=fixture({recovery:true});await flashViaRadio(args);
-  assert(!calls.some(x=>x[0]==="download"));
+  assert(!calls.some(x=>x[0]==="download"&&x[1]==="AT+DOWNLOAD\r\n"));
 });
 test("wrong chip prevents erase/write",async () => {
   const {args,calls}=fixture({chip:"ESP32-C3"});
