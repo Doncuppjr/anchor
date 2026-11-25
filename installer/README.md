@@ -27,3 +27,34 @@ python3 installer/generate-site.py --dist dist --output site --version local-tes
 
 Use a Chromium browser with Web Serial. Choose the **exact hardware board**
 before clicking Install. Do not flash a C5 full image onto a C3 or vice versa.
+
+## Installed-module USB bridge
+
+The "Installed module: USB through the TX15" section uses the radio's CDC
+serial interface, rather than connecting directly to the ESP USB interface.
+It requires the capability-aware EdgeTX branch and Anchor firmware announcing
+UPDATE_UART. The older direct-module screenshots in docs/USB-FLASHING.md do
+not show this bridge flow.
+
+1. On the radio choose Update module > USB and confirm stopping Bluetooth.
+2. Connect the radio USB port to the computer.
+3. Select the exact installed board and Production or Diagnostic profile.
+4. Click "Connect radio and flash module" and choose the radio serial port.
+5. Keep the radio powered through verification and module restart.
+6. Confirm the radio says "Module restarted. Bluetooth restored."
+
+The installer checks image SHA-256/structure and detected chip family, flashes
+the full merged image at 115200 without a stub, and confirms whole-image MD5.
+Full flashing may overwrite pairing/settings. The completion signal to the
+radio requests restart verification; it is not itself proof Bluetooth returned.
+
+Cancellation before ROM entry restores normal Bluetooth. After entering ROM,
+closing the page/port or Back on the radio leaves a recoverable maintenance
+session. Reconnect the installer to retry; do not rely on Back to reset ROM.
+After an interrupted write, complete a verified flash before expecting the
+application to boot. The C3/C5 restart sequence uses the RTC watchdog recipe
+from Espressif esptool 5.3.1 because esptool-js 0.7.1 has no C5 watchdog reset.
+
+Bench status on 25 November 2026: C5 identification, full-image flashing and
+readback passed through a TX15 using Python esptool. A separate watchdog reset
+restored Bluetooth. Browser end-to-end and C3 hardware validation are pending.
