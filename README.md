@@ -59,6 +59,7 @@ The TX15 hardware displayed the optional Update module button, and the command s
 - Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
 - [USB web flashing guide](docs/USB-FLASHING.md): step-by-step browser installation with screenshots, erase choices, and recovery instructions.
+- [Installed-module USB update guide](docs/RADIO-USB-UPDATE.md): TX15 bridge workflow, recovery behavior and current bench validation.
 
 Firmware binaries and SHA-256 manifests are generated as GitHub Actions artifacts rather than stored in source control. Refer to the build run for the matching checksums.
 
@@ -120,7 +121,7 @@ See the [Espressif ESP32-C5 esptool guide](https://docs.espressif.com/projects/e
 
 ## Production and diagnostic builds
 
-`ANCHOR_DEBUG` defaults to `0` for production. Run `make BOARD=c5 PROFILE=production` or `make BOARD=c5 PROFILE=debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. These variants have been compiled but not yet tested on hardware.
+`ANCHOR_DEBUG` defaults to `0` for production. Run `make BOARD=c5 PROFILE=production` or `make BOARD=c5 PROFILE=debug`; see [BUILD-VARIANTS.md](BUILD-VARIANTS.md). The production image excludes USB bench controls and verbose diagnostic logging. Both profiles retain the AT protocol, BLE transport, PH11 and OTA behavior. C5 Production has been exercised on the TX15 for Trainer and USB/Wi-Fi maintenance; C3 and Diagnostic hardware validation remain pending. See the [installed-module USB guide](docs/RADIO-USB-UPDATE.md) for the current bench results and limitations.
 
 ## Browser installer (first-time USB setup)
 
