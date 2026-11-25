@@ -31,6 +31,7 @@
 #include <esp_chip_info.h>
 #include <soc/soc.h>
 #include <driver/gpio.h>
+#include <esp_private/gpio.h>
 #include <soc/uart_pins.h>
 #include <soc/gpio_sig_map.h>
 #if CONFIG_IDF_TARGET_ESP32C3
@@ -919,7 +920,7 @@ static void at(const String& cmd){
    // native RX IOMUX before acknowledging entry; TX is still UART1 here
    // so the acknowledgement can drain before the ROM configures UART0 TX.
    static_assert(RX_PIN==U0RXD_GPIO_NUM,"Native ROM UART0 RX pad required");
-   if(gpio_iomux_input(RX_PIN,U0RXD_MUX_FUNC,U0RXD_IN_IDX)!=ESP_OK){
+   if(gpio_iomux_input(static_cast<gpio_num_t>(RX_PIN),U0RXD_MUX_FUNC,U0RXD_IN_IDX)!=ESP_OK){
      reply("ERROR");return;
    }
    reply("OK+DOWNLOAD");Serial1.flush();
