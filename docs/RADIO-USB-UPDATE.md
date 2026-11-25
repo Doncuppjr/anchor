@@ -72,8 +72,11 @@ The interrupted-write recovery recorded zero UART errors and RX overruns,
 with a maximum USB service gap of 1.028 ms. Normal Bluetooth FIFO sizes
 remained unchanged.
 
-Browser end-to-end validation, BLE OTA upload, C3/CC2540 hardware and
-Telemetry regression checks remain pending. Physical Back dismissal was
+BLE OTA protocol testing with a Linux client also passed fresh session-PIN
+authentication, partial-upload abort and full application validation/boot
+selection. Trainer operation after this BLE restart is awaiting operator
+confirmation. Browser end-to-end validation, C3/CC2540 hardware and Telemetry
+regression checks remain pending. Physical Back dismissal was
 intermittent. A separate popup-focus fix passed its host regression test and
 CI, then closed promptly on the first RTN tap in a repeated no-write cable-
 reconnect session. This single repeat does not prove all intermittent cases
