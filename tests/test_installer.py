@@ -25,6 +25,10 @@ class InstallerTest(unittest.TestCase):
             self.assertIn('value="c5"', html)
             self.assertIn('value="c3-supermini"', html)
             self.assertNotIn('<!-- BOARD_OPTIONS -->', html)
+            self.assertIn('id="uart-update"', html)
+            for asset in ('uart-flasher.mjs', 'uart-update.mjs'):
+                self.assertTrue((site / asset).is_file())
+
             self.assertIn("'./' + board + '/' + profile + '/manifest.json'", html)
             boards = json.loads((site / 'boards.json').read_text())
             self.assertTrue(boards['c3-supermini']['experimental'])
@@ -38,6 +42,13 @@ class InstallerTest(unittest.TestCase):
                     image = path / manifest['builds'][0]['parts'][0]['path']
                     self.assertEqual(image.stat().st_size, size)
                     self.assertEqual(manifest['version'], 'test-version')
+                    full_meta = json.loads((path / 'full.json').read_text())
+                    self.assertEqual(full_meta['board'], board)
+                    self.assertEqual(full_meta['profile'], variant)
+                    self.assertEqual(full_meta['address'], 0)
+                    self.assertEqual(full_meta['size'], size)
+                    self.assertEqual(full_meta['sha256'], hashlib.sha256(image.read_bytes()).hexdigest())
+
                     ota = json.loads((path / 'ota.json').read_text())
                     app = (path / ota['path']).read_bytes()
                     self.assertEqual(ota['board'], board)

@@ -11,8 +11,9 @@ variables:
 test:
   stage: test
   script:
-    - apt-get update -qq && apt-get install -y make g++ python3
+    - apt-get update -qq && apt-get install -y make g++ python3 nodejs
     - make test
+    - node --test tests/test_uart_installer.mjs
 firmware:
   stage: build
   parallel:

@@ -54,6 +54,22 @@
     <progress id="ble-progress" value="0" max="1" style="width:100%"></progress>
     <p id="ble-status" role="status"></p>
   </section>
+  <section class="panel">
+    <h2>Installed module: USB through the TX15</h2>
+    <p>On the radio select Bluetooth settings → Update module → USB.
+    Connect the radio USB port to this computer, select the exact module board
+    above, then choose the radio serial port below. No CLI command is required.</p>
+    <p>This writes the full image and may erase pairing/settings. If interrupted
+    after ROM entry, keep USB maintenance selected and reconnect here to retry.
+    PH11 is not a hardware reset; Back alone cannot restart a module in ROM.</p>
+    <label for="uart-profile">Firmware</label>
+    <select id="uart-profile"><option value="production">Production</option><option value="debug">Diagnostic</option></select>
+    <button class="button" id="uart-update">Connect radio and flash module</button>
+    <button class="button secondary" id="uart-cancel" disabled>Cancel</button>
+    <progress id="uart-progress" value="0" max="1" style="width:100%"></progress>
+    <p id="uart-status" role="status"></p>
+  </section>
+  <script type="module" src="./uart-update.mjs"></script>
   <h2>First-time installation</h2>
   <ol>
     <li>Choose the <strong>exact board model</strong> above. Selecting a different chip family can make the image unusable.</li>

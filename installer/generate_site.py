@@ -65,6 +65,13 @@ def build_site(dist, output, version, boards):
                 'chipFamily': cfg['BOARD_CHIP_FAMILY'], 'path': app_name,
                 'size': len(app), 'sha256': hashlib.sha256(app).hexdigest(),
             }, indent=2) + '\n')
+            (target / 'full.json').write_text(json.dumps({
+                'board': board, 'profile': variant, 'version': version,
+                'chipFamily': cfg['BOARD_CHIP_FAMILY'], 'path': firmware,
+                'address': 0, 'bootOffset': boot_offset,
+                'chipId': int.from_bytes(app[12:14], 'little'),
+                'size': len(image), 'sha256': hashlib.sha256(image).hexdigest(),
+            }, indent=2) + '\n')
             for extra in ('SHA256SUMS', 'BUILD-METADATA.txt'):
                 shutil.copy2(source / extra, target / extra)
             manifest = {
@@ -83,6 +90,9 @@ def build_site(dist, output, version, boards):
     page = Path(__file__).with_name('index.html').read_text()
     page = page.replace('<!-- BOARD_OPTIONS -->', '\n'.join(options))
     (output / 'index.html').write_text(page)
+    for asset in ('uart-flasher.mjs', 'uart-update.mjs'):
+        shutil.copy2(Path(__file__).with_name(asset), output / asset)
+
     (output / 'boards.json').write_text(json.dumps({board: {
         'name': cfg['BOARD_NAME'],
         'chipFamily': cfg['BOARD_CHIP_FAMILY'],
