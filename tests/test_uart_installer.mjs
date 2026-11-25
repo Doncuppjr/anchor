@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {flashViaRadio, normalizeRomMd5, readBridgeLine} from "../installer/uart-flasher.mjs";
+import {flashViaRadio, normalizeRomMd5, readBridgeLine, restartRadioModule} from "../installer/uart-flasher.mjs";
 
 function fixture(options = {}) {
   const data = new Uint8Array(0x10000+64);
@@ -44,8 +44,8 @@ function fixture(options = {}) {
       calls.push(["md5"]);return options.badMd5 ? "0".repeat(32) :
         Buffer.from(hex(hash("md5"))).toString("hex"); // ROM ASCII checksum
     }
-    async softReset(stay) {
-      calls.push(["reset",stay]);
+    async writeReg(address, value) {
+      calls.push(["reset",address,value]);
       if(options.resetFails) throw new Error("reset failed");
     }
   }
@@ -60,7 +60,7 @@ function fixture(options = {}) {
   };
   return {calls,args,port};
 }
-test("authorized ROM flow checks image, chip, flash readback, then software restart",async () => {
+test("authorized ROM flow checks image, chip, flash readback, then watchdog restart",async () => {
   const {args,calls}=fixture();const result=await flashViaRadio(args);
   assert.equal(result.verified,true);
   const probe=calls.findIndex(x=>x[0]==="download"&&x[1]==="AT+BRIDGE?\r\n");
@@ -121,4 +121,17 @@ test("missing acknowledgement times out and releases the reader",async () => {
   const stream=new ReadableStream({});
   await assert.rejects(readBridgeLine({readable:stream},"OK+BRIDGE:",undefined,5));
   assert.equal(stream.locked,false);
+});
+
+test("C3/C5 watchdog restart uses each target's maintained ROM reset registers",async () => {
+  for (const [family,base,protect] of [
+    ["ESP32-C3",0x60008090,0x600080a8],
+    ["ESP32-C5",0x600b1c00,0x600b1c18]
+  ]) {
+    const writes=[],waits=[];
+    await restartRadioModule({writeReg:async (...a)=>writes.push(a)},family,async n=>waits.push(n));
+    assert.deepEqual(writes,[[protect,0x50d83aa1],[base+4,2000],[base,0xd0000102],[protect,0]]);
+    assert.deepEqual(waits,[500]);
+  }
+  await assert.rejects(restartRadioModule({},"ESP32",async()=>{}),/Unsupported/);
 });

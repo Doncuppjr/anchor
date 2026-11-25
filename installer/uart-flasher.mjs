@@ -21,6 +21,23 @@ export async function verifyFullImage(meta, data, board, profile, family, sha256
       (data[app+12] | (data[app+13] << 8)) !== meta.chipId)
     throw new Error("Invalid full firmware image");
 }
+// esptool 5.3.1 target-specific RTC watchdog reset sequence. esptool-js
+// 0.7.1 leaves the C5 implementation as a TODO. A full RTC/system reset
+// restores pads/clocks and clears the force-download state; FLASH_END alone
+// did not restore the application on the installed C5 hardware.
+export async function restartRadioModule(loader, family, settle) {
+  const registers = {
+    "ESP32-C3":[0x60008090,0x60008094,0x600080a8],
+    "ESP32-C5":[0x600b1c00,0x600b1c04,0x600b1c18]
+  }[family];
+  if (!registers) throw new Error("Unsupported module restart target");
+  const [config, timeout, protect] = registers;
+  await loader.writeReg(protect, 0x50d83aa1);
+  await loader.writeReg(timeout, 2000);
+  await loader.writeReg(config, 0xd0000102);
+  await loader.writeReg(protect, 0);
+  await settle(500);
+}
 async function defaultDependencies() {
   const [{ESPLoader, Transport}, {md5}] = await Promise.all([
     import("https://esm.sh/esptool-js@0.7.1"),
@@ -147,8 +164,8 @@ export async function flashViaRadio({
     const actual = normalizeRomMd5(await loader.flashMd5sum(0, data.length));
     if (actual !== hex(md5(data))) throw new Error("Flash readback checksum mismatch");
     verified = true;
-    status("Flash contents verified. Requesting the module software restart...");
-    await loader.softReset(false);
+    status("Flash contents verified. Requesting the module watchdog restart...");
+    await restartRadioModule(loader, family, settle);
     // RTS is a completion request to EdgeTX, never an ESP hardware reset.
     await port.setSignals({dataTerminalReady:true, requestToSend:true});
     await settle(150);
