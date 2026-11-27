@@ -60,6 +60,7 @@ The TX15 hardware displayed the optional Update module button, and the command s
 - EdgeTX radio firmware is maintained separately; it is not built or shipped by Anchor.
 - Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
+- [Nordic nRF52840 / Adafruit bootloader investigation](docs/NORDIC-NRF52840-BOOTLOADER.md): observed USB identity, UF2 recovery, UART DFU configuration and known limitations.
 - [USB web flashing guide](docs/USB-FLASHING.md): step-by-step browser installation with screenshots, erase choices, and recovery instructions.
 - [Installed-module USB update guide](docs/RADIO-USB-UPDATE.md): TX15 bridge workflow, recovery behavior and current bench validation.
 
