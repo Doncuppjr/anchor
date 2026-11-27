@@ -98,27 +98,15 @@ and reset wiring are board-specific.
 - The bootloader reported version `0.11.0`.
 - A known-good ANCHOR application was restored using the USB UF2 recovery
   route, and normal application operation was recovered.
-- The latest recorded transport bench run completed four full 290,860-byte
-  transfers; activation completed, BLE operation and 2M PHY were observed,
-  and the packet accounting recorded 1,355 valid frames and zero invalid
-  frames.
-
-The packet/PHY result is a bench result for the tested setup, not a guarantee
-for every nRF52840 board, radio environment, or bootloader build.
+- The independent USB UF2 bootloader path was used to restore a known-good
+  application and return the board to normal application operation.
 
 ### Recovery limitation
 
-An interrupted single-bank update was also examined. In the incomplete case,
-START and INIT had been accepted and 2,048 bytes acknowledged, but STOP and
-activation had not occurred; the application was no longer valid. The board
-was recoverable through the independent USB UF2 path. We did **not** establish
-that arbitrary power loss during an update automatically rolls back or
-recovers the application.
-
-Destructive power-loss testing was intentionally stopped. The documented
-operator recovery is to use the board's physical USB/UF2 bootloader access and
-restore a known-good application. Do not describe the update mechanism as
-power-fail-safe or claim automatic rollback.
+Automatic rollback after arbitrary power loss during an incomplete application
+update has **not** been demonstrated. Treat physical USB/UF2 bootloader access
+as the independent recovery route and restore a known-good application. Do not
+describe the update mechanism as power-fail-safe or claim automatic rollback.
 
 ## ANCHOR hardware-UART DFU configuration
 
