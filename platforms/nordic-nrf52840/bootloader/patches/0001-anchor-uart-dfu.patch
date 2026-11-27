@@ -1,0 +1,305 @@
+From e38dfcf943d29bd1ceb5659866d92ff5b8ed300e Mon Sep 17 00:00:00 2001
+From: ANCHOR development <anchor-dev@localhost>
+Date: Fri, 27 Nov 2026 02:15:51 +0000
+Subject: [PATCH] Add opt-in hardware UART DFU transport for ANCHOR
+
+---
+ CMakeLists.txt                              |  9 ++-
+ lib/sdk/components/libraries/hci/hci_slip.c | 22 +++++++-
+ src/boards/anchor/board.cmake               |  2 +
+ src/boards/anchor/board.h                   | 62 +++++++++++++++++++++
+ src/boards/anchor/pinconfig.c               | 19 +++++++
+ src/main.c                                  | 24 +++++++-
+ src/sdk_config.h                            |  8 +++
+ 7 files changed, 142 insertions(+), 4 deletions(-)
+ create mode 100644 src/boards/anchor/board.cmake
+ create mode 100644 src/boards/anchor/board.h
+ create mode 100644 src/boards/anchor/pinconfig.c
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2677d45..94b54d2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -222,7 +222,11 @@ if (TRACE_ETM STREQUAL "1")
+   target_compile_definitions(bootloader PUBLIC ENABLE_TRACE)
+ endif ()
+ 
+-if (MCU_VARIANT STREQUAL "nrf52")
++if (ENABLE_UART_DFU)
++  target_compile_definitions(bootloader PUBLIC ENABLE_UART_DFU)
++endif ()
++
++if (MCU_VARIANT STREQUAL "nrf52" OR ENABLE_UART_DFU)
+   # UART transport
+   target_sources(bootloader PUBLIC
+     ${SDK_DIR}/libraries/uart/app_uart.c
+@@ -234,7 +238,8 @@ if (MCU_VARIANT STREQUAL "nrf52")
+     ${SDK_DIR}/drivers_nrf/common
+     ${SDK_DIR}/drivers_nrf/uart
+     )
+-else ()
++endif ()
++if (NOT MCU_VARIANT STREQUAL "nrf52")
+   # USB transport
+   target_sources(bootloader PUBLIC
+     src/boards/${BOARD}/pinconfig.c
+diff --git a/lib/sdk/components/libraries/hci/hci_slip.c b/lib/sdk/components/libraries/hci/hci_slip.c
+index f7673f6..bb7aaf3 100644
+--- a/lib/sdk/components/libraries/hci/hci_slip.c
++++ b/lib/sdk/components/libraries/hci/hci_slip.c
+@@ -47,6 +47,9 @@
+ // nRF has native usb peripheral
+ #ifdef NRF_USBD
+ #include "tusb.h"
++#ifdef ENABLE_UART_DFU
++extern bool uart_dfu_selected;
++#endif
+ #endif
+ 
+ #define APP_SLIP_END        0xC0                            /**< SLIP code for identifying the beginning and end of a packet frame.. */
+@@ -126,6 +129,9 @@ uint32_t (*send_tx_byte) (void) = send_tx_byte_default;
+ 
+ static uint32_t serial_put(char ch)
+ {
++  #ifdef ENABLE_UART_DFU
++  if (uart_dfu_selected) return app_uart_put(ch);
++  #endif
+   return tud_cdc_write_char(ch) ? NRF_SUCCESS : NRF_ERROR_NO_MEM;
+ }
+ 
+@@ -352,8 +358,14 @@ static bool rx_buffer_overflowed(void)
+ 
+ #ifdef NRF_USBD
+ 
++#ifdef ENABLE_UART_DFU
++static uint32_t physical_uart_open(void);
++#endif
+ static uint32_t slip_uart_open(void)
+ {
++#ifdef ENABLE_UART_DFU
++  if (uart_dfu_selected) return physical_uart_open();
++#endif
+   m_current_state = SLIP_READY;
+   return NRF_SUCCESS;
+ }
+@@ -367,7 +379,8 @@ void tud_cdc_rx_cb(uint8_t port)
+   }
+ }
+ 
+-#else
++#endif
++#if !defined(NRF_USBD) || defined(ENABLE_UART_DFU)
+ 
+ /** @brief Function for handling the UART module event. It parses events from the UART when
+  *         bytes are received/transmitted.
+@@ -390,7 +403,11 @@ static void slip_uart_eventhandler(app_uart_evt_t * uart_event)
+ 
+ /** @brief Function for enabling the UART module when the SLIP layer is opened.
+  */
++#ifdef NRF_USBD
++static uint32_t physical_uart_open(void)
++#else
+ static uint32_t slip_uart_open(void)
++#endif
+ {
+     uint32_t err_code;
+ 
+@@ -448,6 +465,9 @@ uint32_t hci_slip_close()
+     m_current_state   = SLIP_OFF;
+ 
+ #ifdef NRF_USBD
++#ifdef ENABLE_UART_DFU
++    if (uart_dfu_selected) return app_uart_close();
++#endif
+     return NRF_SUCCESS;
+ #else
+     uint32_t err_code = app_uart_close();
+diff --git a/src/boards/anchor/board.cmake b/src/boards/anchor/board.cmake
+new file mode 100644
+index 0000000..89585b0
+--- /dev/null
++++ b/src/boards/anchor/board.cmake
+@@ -0,0 +1,2 @@
++set(MCU_VARIANT nrf52840)
++set(ENABLE_UART_DFU ON)
+diff --git a/src/boards/anchor/board.h b/src/boards/anchor/board.h
+new file mode 100644
+index 0000000..840a085
+--- /dev/null
++++ b/src/boards/anchor/board.h
+@@ -0,0 +1,62 @@
++/*
++ * The MIT License (MIT)
++ *
++ * Copyright (c) 2020 Nick Winans
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++ * THE SOFTWARE.
++ */
++
++#ifndef _NICENANO_H
++#define _NICENANO_H
++
++#define ANCHOR_UART_TX 9
++#define ANCHOR_UART_RX 10
++#define UICR_REGOUT0_VALUE UICR_REGOUT0_VOUT_3V3
++
++/*------------------------------------------------------------------*/
++/* LED
++ *------------------------------------------------------------------*/
++#define LEDS_NUMBER     1
++#define LED_PRIMARY_PIN PINNUM(0, 15) // Blue
++#define LED_STATE_ON    1
++
++/*------------------------------------------------------------------*/
++/* BUTTON
++ *------------------------------------------------------------------*/
++// This board has no buttons
++
++//--------------------------------------------------------------------+
++// BLE OTA
++//--------------------------------------------------------------------+
++#define BLEDIS_MANUFACTURER "Nice Keyboards"
++#define BLEDIS_MODEL        "nice!nano"
++
++//--------------------------------------------------------------------+
++// USB
++//--------------------------------------------------------------------+
++#define USB_DESC_VID          0x239A
++#define USB_DESC_UF2_PID      0x00B3
++#define USB_DESC_CDC_ONLY_PID 0x00B3
++
++#define UF2_PRODUCT_NAME      "nice!nano"
++#define UF2_VOLUME_LABEL      "NICENANO"
++#define UF2_BOARD_ID          "nRF52840-nicenano"
++#define UF2_INDEX_URL         "https://nicekeyboards.com/docs/nice-nano"
++
++#endif // _NICENANO_H
+diff --git a/src/boards/anchor/pinconfig.c b/src/boards/anchor/pinconfig.c
+new file mode 100644
+index 0000000..a983e4a
+--- /dev/null
++++ b/src/boards/anchor/pinconfig.c
+@@ -0,0 +1,19 @@
++#include "boards.h"
++#include "uf2/configkeys.h"
++
++__attribute__((used, section(".bootloaderConfig")))
++const uint32_t bootloaderConfig[] =
++{
++  /* CF2 START */
++  CFG_MAGIC0, CFG_MAGIC1,                       // magic
++  5, 100,                                       // used entries, total entries
++
++  204, 0x100000,                                // FLASH_BYTES = 0x100000
++  205, 0x40000,                                 // RAM_BYTES = 0x40000
++  208, (USB_DESC_VID << 16) | USB_DESC_UF2_PID, // BOOTLOADER_BOARD_ID = USB VID+PID, used for verification when updating bootloader via uf2
++  209, 0xada52840,                              // UF2_FAMILY = 0xada52840
++  210, 0x20,                                    // PINS_PORT_SIZE = PA_32
++
++  0, 0, 0, 0, 0, 0, 0, 0
++  /* CF2 END */
++};
+diff --git a/src/main.c b/src/main.c
+index c988ee4..08d2337 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -133,6 +133,9 @@ uint32_t* dbl_reset_mem = ((uint32_t*) DFU_DBL_RESET_MEM);
+ 
+ // true if ble, false if serial
+ bool _ota_dfu = false;
++#ifdef ENABLE_UART_DFU
++bool uart_dfu_selected = false;
++#endif
+ bool _ota_connected = false;
+ bool _ota_was_connected = false;
+ bool _sd_inited = false;
+@@ -258,6 +261,11 @@ static void check_dfu_mode(void) {
+   bool dfu_start = _ota_dfu || serial_only_dfu || uf2_dfu ||
+                    (((*dbl_reset_mem) == DFU_DBL_RESET_MAGIC) && reason_reset_pin);
+ 
++  #ifdef ENABLE_UART_DFU
++  uart_dfu_selected = (gpregret == 0x59);
++  dfu_start = dfu_start || uart_dfu_selected;
++  #endif
++
+   // Clear GPREGRET if it is our values
+   if (dfu_start || dfu_skip) {
+     NRF_POWER->GPREGRET = 0;
+@@ -328,12 +336,23 @@ static void check_dfu_mode(void) {
+       if (!_sd_inited) mbr_init_sd();
+       _sd_inited = true;
+       ble_stack_init();
+-    } else {
++    }
++#ifdef ENABLE_UART_DFU
++    else if (uart_dfu_selected) {
++      led_state(STATE_USB_MOUNTED);
++    }
++#endif
++    else {
+       led_state(STATE_USB_UNMOUNTED);
+       usb_init(serial_only_dfu);
+     }
+ 
+     // Initiate an update of the firmware.
++#ifdef ENABLE_UART_DFU
++    if (uart_dfu_selected) {
++      bootloader_dfu_start(false, 10000, false);
++    } else
++#endif
+     if (APP_ASKS_FOR_SINGLE_TAP_RESET() || uf2_dfu || serial_only_dfu) {
+       // If USB is not enumerated in 3s (eg. because we're running on battery), we restart into app.
+       bootloader_dfu_start(_ota_dfu, 3000, true);
+@@ -345,6 +364,9 @@ static void check_dfu_mode(void) {
+     if (_ota_dfu) {
+       disable_softdevice();
+     } else {
++#ifdef ENABLE_UART_DFU
++      if (!uart_dfu_selected)
++#endif
+       usb_teardown();
+     }
+   }
+diff --git a/src/sdk_config.h b/src/sdk_config.h
+index b61b1f0..7556d60 100644
+--- a/src/sdk_config.h
++++ b/src/sdk_config.h
+@@ -49,11 +49,19 @@
+ #define HCI_SLIP_ENABLED                   1
+ 
+ #define HCI_UART_BAUDRATE                  UART_BAUDRATE_BAUDRATE_Baud115200
++#ifdef ENABLE_UART_DFU
++#define HCI_UART_FLOW_CONTROL 0
++#define HCI_UART_RX_PIN ANCHOR_UART_RX
++#define HCI_UART_TX_PIN ANCHOR_UART_TX
++#define HCI_UART_CTS_PIN 0xffffffffu
++#define HCI_UART_RTS_PIN 0xffffffffu
++#else
+ #define HCI_UART_FLOW_CONTROL              HWFC
+ #define HCI_UART_RX_PIN                    RX_PIN_NUMBER
+ #define HCI_UART_TX_PIN                    TX_PIN_NUMBER
+ #define HCI_UART_CTS_PIN                   CTS_PIN_NUMBER
+ #define HCI_UART_RTS_PIN                   RTS_PIN_NUMBER
++#endif
+ 
+ #define HCI_TRANSPORT_ENABLED              1
+ #define HCI_MAX_PACKET_SIZE_IN_BITS        8000
+-- 
+2.56.1
+

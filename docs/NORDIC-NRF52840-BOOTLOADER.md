@@ -8,13 +8,15 @@ release target.
 
 ## Executive summary
 
-- The tested target is an nRF52840-class board running Adafruit nRF52
+- The application build target and reference hardware are the Pro Micro
+  nRF52840 (`promicro_nrf52840/nrf52840/uf2`) running Adafruit nRF52
   bootloader v0.11.0.
 - Board 1 enumerated in USB bootloader mode as VID:PID `239A:00B3`, with USB
   serial number `CABC4B7C1496E927`.
-- The bootloader image used the `nice!nano` product/UF2 identity. That is the
-  identity compiled into the board definition; it is not, by itself, proof of
-  the exact PCB vendor or hardware revision.
+- The custom bootloader board definition uses the `nice!nano` product/UF2
+  strings even though the Zephyr application target and reference hardware
+  are Pro Micro nRF52840. This is inherited/misleading bootloader branding,
+  not the physical board identity; correct the descriptor before release.
 - UF2 mass-storage recovery was successfully demonstrated on Board 1.
   Automatic recovery after loss of power during an incomplete update was not
   demonstrated and must not be promised.
@@ -28,7 +30,7 @@ release target.
 
 ## Hardware identity and USB interfaces
 
-### Board 1: observed
+### Board 1: Pro Micro nRF52840
 
 | Property | Observation |
 | --- | --- |
@@ -40,9 +42,12 @@ release target.
 | UF2 board ID in this build | `nRF52840-nicenano` |
 | UF2 family | `0xADA52840` |
 
-The USB product and board strings come from the custom bootloader board
-configuration. USB VID:PID is useful for recognizing this bootloader instance,
-but should not be used alone to infer the exact PCB or module revision.
+The Zephyr build reports model `Pro Micro nRF52840` and uses board target
+`promicro_nrf52840/nrf52840/uf2`. The USB product and board strings come from
+the custom bootloader board configuration and currently say `nice!nano`; that
+configuration is not an accurate hardware label. USB VID:PID is useful for
+recognizing this bootloader instance, but should not be used alone to infer
+the physical PCB.
 
 ### Other nRF52840 board notes
 
@@ -179,19 +184,25 @@ prove that the application UART is correctly wired or that AT commands work.
 
 For each physical board, record the application UART's TX/RX pin mapping,
 voltage, baud, framing, and any enable/reset signal separately from the
-bootloader UART mapping. The GPIO 9/10, 115200, no-flow-control values above
-refer specifically to the current ANCHOR bootloader configuration and should
-not be copied to another board without checking its board definition.
+bootloader UART mapping. The GPIO 9/10, 115200, no-flow-control values above refer specifically to
+the current ANCHOR bootloader configuration. For the Pro Micro nRF52840
+Zephyr target, the generated devicetree independently confirms UARTE0 TX
+P0.09 and RX P0.10 at 115200 baud. The USB CDC ACM device is selected as
+`zephyr,console` and is a separate interface. Do not copy this mapping to
+another board without checking its board definition.
 
 ## Development status and next steps
 
-- [x] Confirm Board 1 nRF52840 bootloader USB identity and version.
+- [x] Identify the reference target as Pro Micro nRF52840 and confirm Board 1
+      bootloader USB identity and version.
 - [x] Demonstrate UF2 USB recovery of a known-good ANCHOR application.
 - [x] Preserve the custom bootloader baseline at `e38dfcf`.
 - [x] Record the opt-in UART DFU pins, baud, flow-control setting and reset
       selector from the source configuration.
 - [ ] Identify Board 2 independently and add its USB identity, bootloader
       version and pinout to the hardware matrix.
+- [ ] Correct the custom bootloader USB product/UF2 identity from
+      `nice!nano` to an accurate Pro Micro ANCHOR identity.
 - [ ] Confirm the physical GPIO 9/10 mapping against the exact Board 1
       schematic/pinout before making a harness.
 - [ ] Establish the application AT UART instance and TX/RX pins separately

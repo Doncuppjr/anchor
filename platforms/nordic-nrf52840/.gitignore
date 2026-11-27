@@ -1,0 +1,6 @@
+build-host/
+build/
+*.elf
+*.hex
+*.uf2
+*.map

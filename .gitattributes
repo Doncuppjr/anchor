@@ -1,0 +1,4 @@
+# Preserve upstream-context whitespace in the exact Adafruit patch artifact.
+platforms/nordic-nrf52840/bootloader/patches/*.patch -whitespace
+# Preserve the exact source snapshot used for the recorded NCS build.
+platforms/nordic-nrf52840/src/main.c -whitespace
