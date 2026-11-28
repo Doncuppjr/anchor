@@ -10,6 +10,7 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <hal/nrf_power.h>
 #include <string.h>
+#include <errno.h>
 #include "trainer.h"
 static uint32_t startup_gp, startup_gp2;
 static int capture_boot_regs(void){startup_gp=NRF_POWER->GPREGRET;startup_gp2=NRF_POWER->GPREGRET2;return 0;}
@@ -31,7 +32,7 @@ static uint8_t dma_frame[30];
 static uint32_t generation;
 static atomic_t uart_enabled, uart_done, uart_abort, uart_error, uart_skipped;
 static atomic_t at_baud;
-static volatile bool at_tx_idle=true;
+static uint8_t uart_start_retries;
 static bool update_authorized;
 static uint8_t uart_rx_buf[128], uart_rx_buf_pool[3][128];
 static bool rx_buf_busy[4];
@@ -79,14 +80,25 @@ static void wire_thread(void *a,void *b,void *c){
  }
 }
 K_THREAD_DEFINE(wire_tid,1024,wire_thread,NULL,NULL,NULL,5,0,0);
-static void wire_start(void){
- if(!device_is_ready(wire_uart)){printk("UART not ready\n");return;}
+static int wire_start(void){
+ if(atomic_get(&uart_enabled))return 0;
+ if(!device_is_ready(wire_uart)){printk("UART not ready\n");return -ENODEV;}
  struct uart_config cfg={.baudrate=115200,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};
  int e=uart_configure(wire_uart,&cfg);
  if(!e)e=uart_callback_set(wire_uart,wire_event,NULL);
- if(!e){memset(rx_buf_busy,0,sizeof(rx_buf_busy));rx_buf_busy[0]=true;e=uart_rx_enable(wire_uart,uart_rx_buf,sizeof(uart_rx_buf),10000);}
- if(!e){atomic_set(&uart_enabled,1);atomic_set(&at_baud,115200);}
- printk("UART_START result=%d baud=115200\n",e);
+ if(!e){
+  memset(rx_buf_busy,0,sizeof(rx_buf_busy));
+  rx_buf_busy[0]=true;
+  e=uart_rx_enable(wire_uart,uart_rx_buf,sizeof(uart_rx_buf),10000);
+ }
+ if(!e){
+  atomic_set(&at_baud,115200);
+  atomic_set(&uart_enabled,1);
+ }else{
+  memset(rx_buf_busy,0,sizeof(rx_buf_busy));
+ }
+ printk("UART_START result=%d baud=115200 enabled=%d\n",e,(int)atomic_get(&uart_enabled));
+ return e;
 }
 static uint16_t end_handle;
 static void scan(void);
@@ -119,8 +131,8 @@ static void at_command(const char *s){
   struct uart_config c={.baudrate=115200,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};
   int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?57600:115200);
   printk("UART BAUD4 result=%d baud=%ld\n",e,(long)atomic_get(&at_baud));
- }else if(!strncmp(s,"AT+NAME",7)){char line[64];snprintf(line,sizeof(line),"OK+Name:%s",s+7);uart_reply(line);}
- else if(!strncmp(s,"AT+TXPW",7)){char line[32];snprintf(line,sizeof(line),"OK+Txpw:%s",s+7);uart_reply(line);uart_reply("OK+CAPS:1,UPDATE_UART");at_identity("Central:");}
+ }else if(!strncmp(s,"AT+NAME",7)){char line[64];snprintf(line,sizeof(line),"OK+Name:%.55s",s+7);uart_reply(line);}
+ else if(!strncmp(s,"AT+TXPW",7)){char line[32];snprintf(line,sizeof(line),"OK+Txpw:%.23s",s+7);uart_reply(line);uart_reply("OK+CAPS:1,UPDATE_UART");at_identity("Central:");}
  else if(!strcmp(s,"AT+UPDATE=UART")){if(role_active){uart_reply("ERROR");return;}update_authorized=true;uart_reply("OK+UPDATE:UART");}
  else if(!strcmp(s,"AT+DOWNLOAD")){if(!update_authorized){uart_reply("ERROR");return;}uart_reply("OK+DOWNLOAD");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x59;sys_reboot(SYS_REBOOT_COLD);}
  else if(!strcmp(s,"AT+ROLE1")){uart_reply("OK+Role:1");at_identity("Central:");role_active=true;if(!started){int e=bt_enable(NULL);printk("AT BLE init=%d\n",e);if(!e)started=true;}if(started)scan();}
@@ -142,7 +154,7 @@ static void uart_commands(void){
 static void commands(void){
  static char b[48];static unsigned n;uint8_t c;
  while(ring_buf_get(&rx,&c,1)){
- if(c==10||c==13){if(n){b[n]=0;if(!strcmp(b,"UART_DFU")||!strcmp(b,"AT+DOWNLOAD")){printk("UART DFU reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x59;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"UF2")){printk("UF2 reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x57;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"TESTBAUD57600")){if(atomic_get(&uart_enabled)){struct uart_config c={.baudrate=57600,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?115200:57600);printk("UART test baud=%ld result=%d\n",(long)atomic_get(&at_baud),e);}}else if(!strcmp(b,"UART_START")){if(!atomic_get(&uart_enabled))wire_start();}else if(!strcmp(b,"BT_START"))start_requested=true;else if(!strcmp(b,"PING"))printk("PONG ANCHOR GPREGRET=%02x GPREGRET2=%02x START=%02x/%02x MARK=%08x\n",(unsigned)NRF_POWER->GPREGRET,(unsigned)NRF_POWER->GPREGRET2,(unsigned)startup_gp,(unsigned)startup_gp2,(unsigned)(*((volatile uint32_t*)0x20007F78)));n=0;}}
+ if(c==10||c==13){if(n){b[n]=0;if(!strcmp(b,"UART_DFU")||!strcmp(b,"AT+DOWNLOAD")){printk("UART DFU reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x59;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"UF2")){printk("UF2 reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x57;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"TESTBAUD57600")){if(atomic_get(&uart_enabled)){struct uart_config c={.baudrate=57600,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?115200:57600);printk("UART test baud=%ld result=%d\n",(long)atomic_get(&at_baud),e);}}else if(!strcmp(b,"UART_START")){uart_start_retries=5;wire_start();}else if(!strcmp(b,"BT_START")){role_active=true;start_requested=true;}else if(!strcmp(b,"PING"))printk("PONG ANCHOR GPREGRET=%02x GPREGRET2=%02x START=%02x/%02x MARK=%08x\n",(unsigned)NRF_POWER->GPREGRET,(unsigned)NRF_POWER->GPREGRET2,(unsigned)startup_gp,(unsigned)startup_gp2,(unsigned)(*((volatile uint32_t*)0x20007F78)));n=0;}}
  else if(n<sizeof(b)-1)b[n++]=c;else n=0;
  }}
 static uint8_t notify(struct bt_conn *c,struct bt_gatt_subscribe_params *p,const void *data,uint16_t len){
@@ -187,12 +199,25 @@ static void disconnected(struct bt_conn *c,uint8_t reason){printk("Disconnected 
 static void phy(struct bt_conn *c,struct bt_conn_le_phy_info *p){printk("PHY tx=%u rx=%u\n",p->tx_phy,p->rx_phy);}
 BT_CONN_CB_DEFINE(callbacks)={.connected=connected,.disconnected=disconnected,.le_phy_updated=phy};
 static bool match(struct bt_data *d,void *u){
- if(d->type==BT_DATA_UUID16_ALL||d->type==BT_DATA_UUID16_SOME)for(int i=0;i+1<d->data_len;i+=2)if(d->data[i]==0xf0&&d->data[i+1]==0xff){*(bool*)u=true;return false;}return true;
+ if(d->type==BT_DATA_UUID16_ALL||d->type==BT_DATA_UUID16_SOME){
+  for(int i=0;i+1<d->data_len;i+=2){
+   if(d->data[i]==0xf0&&d->data[i+1]==0xff){
+    *(bool*)u=true;
+    return false;
+   }
+  }
+ }
+ return true;
 }
 static void found(const bt_addr_le_t *addr,int8_t rssi,uint8_t type,struct net_buf_simple *ad){
- if(peer)return;bool yes=false;bt_data_parse(ad,match,&yes);if(!yes)return;
- bt_le_scan_stop();int e=bt_conn_le_create(addr,BT_CONN_LE_CREATE_CONN,BT_LE_CONN_PARAM(6,6,0,400),&peer);
- printk("Create result=%d RSSI=%d\n",e,rssi);if(e)k_work_reschedule(&scan_work,K_SECONDS(1));
+ if(peer)return;
+ bool yes=false;
+ bt_data_parse(ad,match,&yes);
+ if(!yes)return;
+ bt_le_scan_stop();
+ int e=bt_conn_le_create(addr,BT_CONN_LE_CREATE_CONN,BT_LE_CONN_PARAM(6,6,0,400),&peer);
+ printk("Create result=%d RSSI=%d\n",e,rssi);
+ if(e)k_work_reschedule(&scan_work,K_SECONDS(1));
 }
 static void scan(void){int e=bt_le_scan_start(BT_LE_SCAN_ACTIVE,found);printk("Scan result=%d\n",e);}
 int main(void){
@@ -201,7 +226,9 @@ int main(void){
  anchor_identity.a.val[4]=hi&0xff;anchor_identity.a.val[5]=((hi>>8)&0x3f)|0xc0;anchor_identity.type=BT_ADDR_LE_RANDOM;
  bt_id_create(&anchor_identity,NULL);
  uart_irq_callback_user_data_set(console,serial_irq,NULL);uart_irq_rx_enable(console);k_sem_init(&at_ready,0,1);
- printk("ANCHOR USB READY\n");printk("BUILD: ANCHOR_UART_AT_RXPOOL_100MS\n");
- int64_t next=0;while(1){commands();if(atomic_get(&uart_enabled))uart_commands();if(start_requested&&!started){start_requested=false;printk("BT starting\n");int e=bt_enable(NULL);printk("BT init=%d\n",e);if(!e){started=true;scan();}}if(k_uptime_get()>=next){printk("STATS packets=%ld bytes=%ld\n",(long)atomic_get(&packets),(long)atomic_get(&bytes));uint16_t ch[8];size_t len;k_spinlock_key_t key=k_spin_lock(&sample_lock);memcpy(ch,latest,sizeof(ch));len=latest_len;k_spin_unlock(&sample_lock,key);
+ printk("ANCHOR USB READY\n");printk("BUILD: ANCHOR_UART_AT_RXPOOL_AUTO_START\n");
+ int uart_result=wire_start();
+ int64_t next_uart_retry=k_uptime_get()+500;
+ int64_t next=0;while(1){commands();if(atomic_get(&uart_enabled))uart_commands();if(!atomic_get(&uart_enabled)&&uart_start_retries<5&&k_uptime_get()>=next_uart_retry){uart_start_retries++;uart_result=wire_start();next_uart_retry=k_uptime_get()+500;printk("UART startup retry=%u result=%d\n",uart_start_retries,uart_result);}if(start_requested&&!started){start_requested=false;printk("BT starting\n");int e=bt_enable(NULL);printk("BT init=%d\n",e);if(!e){started=true;scan();}}if(k_uptime_get()>=next){printk("STATS packets=%ld bytes=%ld\n",(long)atomic_get(&packets),(long)atomic_get(&bytes));uint16_t ch[8];size_t len;k_spinlock_key_t key=k_spin_lock(&sample_lock);memcpy(ch,latest,sizeof(ch));len=latest_len;k_spin_unlock(&sample_lock,key);
  printk("FRAMES valid=%ld invalid=%ld boot=%ld len=%u channels=%u,%u,%u,%u,%u,%u,%u,%u\n",(long)atomic_get(&valid),(long)atomic_get(&invalid),(long)atomic_get(&boot),(unsigned)len,ch[0],ch[1],ch[2],ch[3],ch[4],ch[5],ch[6],ch[7]);printk("UART done=%ld abort=%ld error=%ld skipped=%ld\n",(long)atomic_get(&uart_done),(long)atomic_get(&uart_abort),(long)atomic_get(&uart_error),(long)atomic_get(&uart_skipped));next=k_uptime_get()+2000;}k_sleep(K_MSEC(10));}
 }

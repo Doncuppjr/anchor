@@ -9,9 +9,10 @@ The latest recorded build used:
 | nRF Connect SDK | 3.3.0 |
 | Zephyr | 4.3.99 |
 | West | 1.5.0 |
-| Zephyr SDK | 0.17.0 |
-| GNU Arm compiler | GCC 12.2.0 |
-| CMake | 4.2.1 |
+| Latest AiPal toolchain variant | GNU Arm Embedded (gnuarmemb) |
+| Latest AiPal GNU Arm compiler | 14.2.1 |
+| Latest AiPal CMake | 4.3.0 |
+| Earlier CI reference toolchain | Zephyr SDK 0.17.0 / GCC 12.2.0 |
 | Board | `promicro_nrf52840/nrf52840/uf2` |
 | Build mode | Sysbuild |
 | Additional config | `conf/control.conf` |
@@ -27,15 +28,15 @@ west build -b promicro_nrf52840/nrf52840/uf2 \
   -- -DEXTRA_CONF_FILE=/workspace/adapt/control.conf
 ```
 
-From a normal NCS 3.3.0 workspace, run:
+The latest AiPal build used Arm GNU Embedded 14.2.1 rather than a bundled Zephyr SDK. From an NCS 3.3.0 workspace with that toolchain installed, run:
 
 ```sh
-west build -p always \
-  -b promicro_nrf52840/nrf52840/uf2 \
-  "$PWD/platforms/nordic-nrf52840" \
-  -d "$PWD/build/nordic-nrf52840" \
-  -- -DEXTRA_CONF_FILE="$PWD/platforms/nordic-nrf52840/conf/control.conf"
-```
+export ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb
+export GNUARMEMB_TOOLCHAIN_PATH=/path/to/arm-gnu-toolchain-14.2.rel1-aarch64-arm-none-eabi
+west build -p always -b promicro_nrf52840/nrf52840/uf2 "$PWD/platforms/nordic-nrf52840" -d "$PWD/build/nordic-nrf52840" -- -DEXTRA_CONF_FILE="$PWD/platforms/nordic-nrf52840/conf/control.conf"
+
+
+A normal NCS installation with its supported Zephyr SDK can instead use its configured toolchain variant; do not set the gnuarmemb variables in that case.
 
 The workspace must be initialized from the nRF Connect SDK 3.3.0 manifest and
 updated with `west update`; the Zephyr board definition and toolchain must be
@@ -64,7 +65,10 @@ The project `prj.conf` enables the BLE central/client path, scanning, GATT
 client, asynchronous UART API and Nordic enhanced UARTE RX. The additional
 `conf/control.conf` enables USB CDC ACM, line control, UF2 output and reboot.
 The application uses the USB CDC device for diagnostics while UARTE0 carries
-the radio/AT data path.
+the radio/AT data path. UARTE0 is initialized automatically at application
+startup; a bounded retry loop attempts startup five additional times at 500 ms
+intervals if initial configuration fails. The USB UART_START command remains
+available as an explicit retry.
 
 The generated configuration for the successful build included:
 
@@ -94,24 +98,24 @@ and truncated-frame rejection. It exercised 486 reserved checksum cases.
 
 ## Latest recorded target build
 
-The latest source modification was made on 27 November 2026 at 12:20:54 local
-time, and the target UF2 was generated at 12:21:12. The compiled `src/main.c`
-SHA-256 was `f0be08dbe26ea24d9963735518756ccc1cc79125ea71e6b7952d4dfb70c96e54`.
+The latest source modification was made on 27 November 2026 at 16:54:39 local
+time, and the target UF2 was generated at 16:55:13. The compiled src/main.c
+SHA-256 was 6feb63cb63269c8239d2394ea740f6445eb251accc38380759dc769bae84fd3b.
 The resulting build report was:
 
 | Metric | Result |
 | --- | ---: |
-| Application flash use | 290,860 bytes / 792 KiB (35.86%) |
+| Application flash use | 290,612 bytes / 792 KiB (35.83%) |
 | RAM use | 55,656 bytes / 256 KiB (21.23%) |
-| UF2 file size | 582,144 bytes |
-| UF2 start address | `0x26000` |
-| UF2 SHA-256 | `4331829f71e9e7c625c6ea5c4cf7ee586357dabe04a7eedc5b485755c7b201bf` |
+| UF2 file size | 581,632 bytes |
+| UF2 start address | 0x26000 |
+| UF2 SHA-256 | 9b54b1611a94b5add8fe43d70c0e60bc45a531bf69f68cd13c62c42013688759 |
 
-The successful build emitted compiler warnings for misleading indentation
-and possible `snprintf` truncation in the AT response formatting. These should
-be cleaned up before treating the build as release quality. The generated
-UF2/ELF/HEX files are not committed; rebuild from source using the command
-above to produce fresh artifacts.
+The latest build has no application C compiler warnings. Kconfig still
+reports UART_NRFX_UARTE_ENHANCED_RX as deprecated (it remains enabled by
+default unless the TIMER peripheral is used) and BT_HCI_ERR_TO_STR as
+experimental. The generated UF2/ELF/HEX files are not committed; rebuild
+from source using the command above to produce fresh artifacts.
 
 ## Bench validation status
 
@@ -126,14 +130,41 @@ Validated in the current native application work:
 
 Still requiring a deliberate regression pass on the exact target hardware:
 
-- Cold-start UART availability without first issuing the USB diagnostic
-  `UART_START` command.
+- TX15-originated AT command reception and ROLE negotiation over the hardware
+  UART; no AT RX bytes were observed in the latest bench capture.
 - Full AT compatibility and role-state behavior against the TX15.
 - BLE reconnect and startup-order regression after repeated resets.
 - Complete UART DFU transfer, verification, activation and return to the
   application using the custom bootloader.
 - Recovery from interrupted UART DFU using the independent physical USB/UF2
   path.
+
+
+## Latest hardware bench result (27 November 2026)
+
+The latest UF2 was copied through the custom Adafruit bootloader to the
+connected ANCHOR device (USB serial CABC4B7C1496E927). The bootloader reports
+version 0.11.0-7-ge38dfcf-dirty and USB model nice!nano; that model string
+is inherited from the custom bootloader board header and is not a reliable
+physical PCB identification.
+
+After the application rebooted, USB CDC returned. No UART_START command was
+sent. The USB diagnostic BT_START command was used to exercise the central
+path independently of the TX15 AT command path:
+
+- BLE central initialized and scan started successfully.
+- Connected to the advertising Yacht peer at RSSI -55 dBm.
+- Discovered service 0xFFF0, characteristic 0xFFF6, and subscribed.
+- Cumulative trainer notifications: 2,038; valid: 2,038; invalid: 0.
+- UARTE TX completions: 1,923; mailbox-superseded frames: 115.
+- UART TX aborts: 0; UART TX errors: 0.
+
+TX completions plus superseded frames account for all 2,038 notifications.
+This verifies automatic UARTE startup, BLE central operation, trainer decode,
+and the asynchronous UARTE TX path on the flashed device. It does not prove
+that an external receiver consumed every transmitted byte, and it does not
+yet validate the TX15-originated AT RX/ROLE handshake. No AT RX events were
+seen in the capture.
 
 ## Bootloader handoff contract
 

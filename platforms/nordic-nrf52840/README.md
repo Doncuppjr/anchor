@@ -30,16 +30,18 @@ The current reference target is the Pro Micro nRF52840:
   for AT command input.
 - Implements the currently supported AT command subset and the guarded
   `AT+UPDATE=UART` / `AT+DOWNLOAD` handoff to the custom Adafruit bootloader.
-- Provides a USB CDC diagnostic console for starting UART/BLE and inspecting
-  packet, frame and UART counters.
+- Provides a USB CDC diagnostic console for retrying UART startup, starting
+  BLE and inspecting packet, frame and UART counters.
 
 ## Important current limitations
 
 This is the latest integrated bench application, not yet a production-ready
 replacement for every ESP32 ANCHOR behavior. In the current source:
 
-- UARTE0 is started by the USB CDC diagnostic command `UART_START`; it is not
-  automatically started in `main()`.
+- UARTE0 is initialized automatically during application startup. The USB CDC
+  diagnostic command `UART_START` remains available as a manual retry if the
+  initial driver setup fails. Startup retries up to five times at 500 ms
+  intervals before leaving the diagnostic retry command available.
 - `AT+ROLE1` enables BLE and starts central scanning.
 - `AT+ROLE0` enables the BLE host but does not yet implement a complete BLE
   peripheral advertising/connection role.
@@ -51,8 +53,10 @@ replacement for every ESP32 ANCHOR behavior. In the current source:
   end-to-end UART DFU transfer and recovery regression remains a separate
   validation item.
 
-These distinctions are intentional documentation of the actual source, not
-claims that the unfinished paths are complete.
+The latest bench run verified automatic UARTE startup and TX completions while
+forwarding valid BLE trainer notifications. TX15-originated AT RX and role
+negotiation have not yet been observed. These distinctions are intentional
+documentation of the actual source, not claims that unfinished paths are complete.
 
 ## Build and test
 
