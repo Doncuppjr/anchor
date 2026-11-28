@@ -205,3 +205,33 @@ factory baud. Build and host parser tests passed.
 The exact TX15 hardware handshake has not yet been exercised after this
 correction; connect the TX15 UART before claiming the complete baud transition
 and AT sequence validated.
+
+
+## Teyleten Robot Pro Micro switched-VCC polarity
+
+The exact purchased board listing is Teyleten Robot Pro Micro nRF52840,
+ASIN B0CYLNZ6V4. The listing specifies a 3.7 V lithium battery interface and
+a software switch for LED power. The corresponding Pro Micro pinout documents
+P0.13 LOW as VCC off and P0.13 HIGH as VCC = 3.3 V. The application now
+defaults P0.13 HIGH, and P0.15 is toggled every 500 ms as a heartbeat.
+
+The earlier P0.13-LOW default was based on a different nice!nano revision
+and was incorrect for this Teyleten Robot board. USB flashing of this
+corrected build remains pending until the board re-enumerates; do not claim
+the change is installed until its new build marker is observed.
+
+## Teyleten Robot switched-VCC / heartbeat build (28 November 2026)
+
+The corrected application build configures P0.13 HIGH at startup (switched
+VCC enabled) and P0.15 as a 1 Hz blue LED heartbeat. USB diagnostics can
+manually set the rail with VCC_LOW (off) and VCC_HIGH (on). The host trainer
+parser regression passed 100,000 vectors.
+
+- UF2 SHA-256: 9013851bc5c3e4fcee3e93388d5c3d0f6ce21849ec19cc849f98506df32ebb78
+- Application flash: 291,648 bytes / 792 KiB (35.96%)
+- RAM: 55,656 bytes / 256 KiB (21.23%)
+- UF2 size: 583,680 bytes
+
+This image has been built but has **not yet been flashed**. The board was not
+enumerating as USB mass storage during this build session. Verify the startup
+marker and LED heartbeat after the next successful UF2 flash.

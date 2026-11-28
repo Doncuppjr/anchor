@@ -81,3 +81,21 @@ from an initialized NCS 3.3.0 workspace and toolchain.
 The NCS/Zephyr source tree, build directory, generated ELF/HEX/UF2 files and
 host test executable are intentionally not committed. They are build inputs
 or outputs, not application source.
+
+
+## Teyleten Robot Pro Micro power control
+
+The reference hardware is the Teyleten Robot Pro Micro nRF52840 (Amazon
+ASIN B0CYLNZ6V4). Its product listing describes a 3.7 V lithium battery
+interface and a software-controlled LED/VCC power switch. The matching
+Pro Micro pinout identifies P0.13 as the switched VCC control:
+
+- P0.13 LOW: switched VCC output off (0 V).
+- P0.13 HIGH: switched VCC output on (3.3 V).
+- P0.15: onboard status LED.
+
+ANCHOR therefore configures P0.13 HIGH at startup and blinks P0.15 as an
+application heartbeat. USB diagnostic commands VCC_LOW and VCC_HIGH remain
+available to test the rail manually. This pin polarity is specific to the
+Teyleten Robot / nRFMicro-style board documented here; do not generalize
+it to every board sold as a Pro Micro nRF52840.

@@ -19,7 +19,7 @@ SYS_INIT(capture_boot_regs, PRE_KERNEL_1, 0);
 static const struct device *console=DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 static const struct device *gpio0=DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static int bt_enable_level=-1;
-static int vcc_enable_init(void){if(!device_is_ready(gpio0))return -ENODEV;return gpio_pin_configure(gpio0,13,GPIO_OUTPUT_INACTIVE);}
+static int vcc_enable_init(void){if(!device_is_ready(gpio0))return -ENODEV;return gpio_pin_configure(gpio0,13,GPIO_OUTPUT_ACTIVE);}
 static int led_init(void){if(!device_is_ready(gpio0))return -ENODEV;return gpio_pin_configure(gpio0,15,GPIO_OUTPUT_INACTIVE);}
 static int vcc_set(int level){return gpio_pin_set(gpio0,13,level);}
 static int vcc_level(void){return gpio_pin_get(gpio0,13);}
@@ -165,8 +165,8 @@ static void commands(void){
  static char b[48];static unsigned n;uint8_t c;
  while(ring_buf_get(&rx,&c,1)){
  if(c==10||c==13){if(n){b[n]=0;if(!strcmp(b,"UART_DFU")||!strcmp(b,"AT+DOWNLOAD")){printk("UART DFU reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x59;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"UF2")){printk("UF2 reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x57;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"TESTBAUD57600")){if(atomic_get(&uart_enabled)){struct uart_config c={.baudrate=57600,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?115200:57600);printk("UART test baud=%ld result=%d\n",(long)atomic_get(&at_baud),e);}}else if(!strcmp(b,"UART_START")){uart_start_retries=5;wire_start();}
- else if(!strcmp(b,"VCC_LOW")){int e=vcc_set(0);printk("VCC P0.13=LOW result=%d readback=%d\\n",e,vcc_level());}
- else if(!strcmp(b,"VCC_HIGH")){int e=vcc_set(1);printk("VCC P0.13=HIGH result=%d readback=%d\\n",e,vcc_level());}else if(!strcmp(b,"BT_START")){role_active=true;start_requested=true;}else if(!strcmp(b,"PING")){int en=bt_enable_read();int vcc=gpio_pin_get(gpio0,13);printk("PONG ANCHOR GPREGRET=%02x GPREGRET2=%02x START=%02x/%02x MARK=%08x BT_EN_P0.02=%s(%d) VCC_EN_P0.13=%s(%d)\n",(unsigned)NRF_POWER->GPREGRET,(unsigned)NRF_POWER->GPREGRET2,(unsigned)startup_gp,(unsigned)startup_gp2,(unsigned)(*((volatile uint32_t*)0x20007F78)),en>0?"HIGH":en==0?"LOW":"ERROR",en,vcc>0?"HIGH":vcc==0?"LOW":"ERROR",vcc);}n=0;}}
+ else if(!strcmp(b,"VCC_LOW")){int e=vcc_set(0);printk("VCC P0.13=LOW (VCC OFF) result=%d readback=%d\\n",e,vcc_level());}
+ else if(!strcmp(b,"VCC_HIGH")){int e=vcc_set(1);printk("VCC P0.13=HIGH (VCC ON) result=%d readback=%d\\n",e,vcc_level());}else if(!strcmp(b,"BT_START")){role_active=true;start_requested=true;}else if(!strcmp(b,"PING")){int en=bt_enable_read();int vcc=gpio_pin_get(gpio0,13);printk("PONG ANCHOR GPREGRET=%02x GPREGRET2=%02x START=%02x/%02x MARK=%08x BT_EN_P0.02=%s(%d) VCC_EN_P0.13=%s(%d)\n",(unsigned)NRF_POWER->GPREGRET,(unsigned)NRF_POWER->GPREGRET2,(unsigned)startup_gp,(unsigned)startup_gp2,(unsigned)(*((volatile uint32_t*)0x20007F78)),en>0?"HIGH":en==0?"LOW":"ERROR",en,vcc>0?"HIGH":vcc==0?"LOW":"ERROR",vcc);}n=0;}}
  else if(n<sizeof(b)-1)b[n++]=c;else n=0;
  }}
 static uint8_t notify(struct bt_conn *c,struct bt_gatt_subscribe_params *p,const void *data,uint16_t len){
@@ -239,10 +239,10 @@ int main(void){
  bt_id_create(&anchor_identity,NULL);
  uart_irq_callback_user_data_set(console,serial_irq,NULL);uart_irq_rx_enable(console);k_sem_init(&at_ready,0,1);
  printk("ANCHOR USB READY\n");
- printk("BUILD: ANCHOR_UART_AT_RXPOOL_AUTO_START_VCCLOW_LEDHEARTBEAT\n");
+ printk("BUILD: ANCHOR_UART_AT_RXPOOL_AUTO_START_VCCHIGH_LEDHEARTBEAT\n");
  int vcc_init=vcc_enable_init();
  int led_result=led_init();
- printk("GPIO init P0.13 LOW (VCC ON)=%d P0.15 LED=%d\n",vcc_init,led_result);
+ printk("GPIO init P0.13 HIGH (VCC ON)=%d P0.15 LED=%d\n",vcc_init,led_result);
  int en_init=bt_enable_init();
  printk("BT_EN P0.02 input init=%d\n",en_init);
  if(!en_init){bt_enable_level=bt_enable_read();printk("BT_EN P0.02=%s (%d)\n",bt_enable_level?"HIGH":"LOW",bt_enable_level);}
