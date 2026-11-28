@@ -10,8 +10,8 @@ The current reference target is the Pro Micro nRF52840:
 - MCU: Nordic nRF52840
 - SDK: nRF Connect SDK 3.3.0 (Zephyr 4.3.99)
 - USB console: USB CDC ACM
-- Application UART: UARTE0, 115200 baud, 8 data bits, no parity, 1 stop bit,
-  no hardware flow control
+- Application UART: UARTE0, initially 57600 baud (EdgeTX factory baud);
+  AT+BAUD4 switches it to 115200 baud. Both modes use 8N1, no flow control.
 - Application UART pins on this Zephyr board definition: TX P0.09, RX P0.10
 - BLE role: central scanner/client for the FrSky-compatible trainer service
 
@@ -38,10 +38,11 @@ The current reference target is the Pro Micro nRF52840:
 This is the latest integrated bench application, not yet a production-ready
 replacement for every ESP32 ANCHOR behavior. In the current source:
 
-- UARTE0 is initialized automatically during application startup. The USB CDC
-  diagnostic command `UART_START` remains available as a manual retry if the
-  initial driver setup fails. Startup retries up to five times at 500 ms
-  intervals before leaving the diagnostic retry command available.
+- UARTE0 is initialized automatically at 57600 baud during application startup.
+  AT+BAUD4 is acknowledged at 57600, then the application switches to 115200
+  after 50 ms. The USB CDC diagnostic UART_START command remains available as
+  a manual retry if initial setup fails; startup retries five times at 500 ms
+  intervals.
 - `AT+ROLE1` enables BLE and starts central scanning.
 - `AT+ROLE0` enables the BLE host but does not yet implement a complete BLE
   peripheral advertising/connection role.

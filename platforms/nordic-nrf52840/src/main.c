@@ -83,7 +83,7 @@ K_THREAD_DEFINE(wire_tid,1024,wire_thread,NULL,NULL,NULL,5,0,0);
 static int wire_start(void){
  if(atomic_get(&uart_enabled))return 0;
  if(!device_is_ready(wire_uart)){printk("UART not ready\n");return -ENODEV;}
- struct uart_config cfg={.baudrate=115200,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};
+ struct uart_config cfg={.baudrate=57600,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};
  int e=uart_configure(wire_uart,&cfg);
  if(!e)e=uart_callback_set(wire_uart,wire_event,NULL);
  if(!e){
@@ -92,12 +92,12 @@ static int wire_start(void){
   e=uart_rx_enable(wire_uart,uart_rx_buf,sizeof(uart_rx_buf),10000);
  }
  if(!e){
-  atomic_set(&at_baud,115200);
+  atomic_set(&at_baud,57600);
   atomic_set(&uart_enabled,1);
  }else{
   memset(rx_buf_busy,0,sizeof(rx_buf_busy));
  }
- printk("UART_START result=%d baud=115200 enabled=%d\n",e,(int)atomic_get(&uart_enabled));
+ printk("UART_START result=%d baud=57600 enabled=%d\n",e,(int)atomic_get(&uart_enabled));
  return e;
 }
 static uint16_t end_handle;
@@ -127,7 +127,7 @@ static void at_command(const char *s){
  if(!strcmp(s,"AT"))uart_reply("OK");
  else if(!strcmp(s,"TESTBAUD57600")){struct uart_config c={.baudrate=57600,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?115200:57600);printk("UART test baud=%ld result=%d\n",(long)atomic_get(&at_baud),e);}
  else if(!strcmp(s,"AT+BAUD4")){
-  uart_reply("OK");k_sleep(K_MSEC(10));
+  uart_reply("OK");k_sleep(K_MSEC(50));
   struct uart_config c={.baudrate=115200,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};
   int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?57600:115200);
   printk("UART BAUD4 result=%d baud=%ld\n",e,(long)atomic_get(&at_baud));

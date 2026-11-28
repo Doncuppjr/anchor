@@ -28,15 +28,15 @@ west build -b promicro_nrf52840/nrf52840/uf2 \
   -- -DEXTRA_CONF_FILE=/workspace/adapt/control.conf
 ```
 
-The latest AiPal build used Arm GNU Embedded 14.2.1 rather than a bundled Zephyr SDK. From an NCS 3.3.0 workspace with that toolchain installed, run:
+The latest AiPal build used Arm GNU Embedded 14.2.1 rather than a bundled
+Zephyr SDK. From an NCS 3.3.0 workspace with that toolchain installed, run:
 
-```sh
-export ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb
-export GNUARMEMB_TOOLCHAIN_PATH=/path/to/arm-gnu-toolchain-14.2.rel1-aarch64-arm-none-eabi
-west build -p always -b promicro_nrf52840/nrf52840/uf2 "$PWD/platforms/nordic-nrf52840" -d "$PWD/build/nordic-nrf52840" -- -DEXTRA_CONF_FILE="$PWD/platforms/nordic-nrf52840/conf/control.conf"
+    export ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb
+    export GNUARMEMB_TOOLCHAIN_PATH=/path/to/arm-gnu-toolchain-14.2.rel1-aarch64-arm-none-eabi
+    west build -p always -b promicro_nrf52840/nrf52840/uf2 "$PWD/platforms/nordic-nrf52840" -d "$PWD/build/nordic-nrf52840" -- -DEXTRA_CONF_FILE="$PWD/platforms/nordic-nrf52840/conf/control.conf"
 
-
-A normal NCS installation with its supported Zephyr SDK can instead use its configured toolchain variant; do not set the gnuarmemb variables in that case.
+A normal NCS installation with its supported Zephyr SDK can instead use its
+configured toolchain variant; do not set the gnuarmemb variables in that case.
 
 The workspace must be initialized from the nRF Connect SDK 3.3.0 manifest and
 updated with `west update`; the Zephyr board definition and toolchain must be
@@ -51,7 +51,8 @@ with the board's `uart0_default` pinctrl group:
 
 - UART TX: P0.09
 - UART RX: P0.10
-- Speed: 115200 baud
+- Startup speed: 57600 baud (EdgeTX factory baud); AT+BAUD4 switches to
+  115200 baud
 
 This is the application hardware UART. It is not the USB CDC console. The
 current ANCHOR bootloader board definition uses the same GPIO 9/10 assignment
@@ -65,10 +66,11 @@ The project `prj.conf` enables the BLE central/client path, scanning, GATT
 client, asynchronous UART API and Nordic enhanced UARTE RX. The additional
 `conf/control.conf` enables USB CDC ACM, line control, UF2 output and reboot.
 The application uses the USB CDC device for diagnostics while UARTE0 carries
-the radio/AT data path. UARTE0 is initialized automatically at application
-startup; a bounded retry loop attempts startup five additional times at 500 ms
-intervals if initial configuration fails. The USB UART_START command remains
-available as an explicit retry.
+the radio/AT data path. UARTE0 is initialized automatically at 57600 baud
+at application startup; AT+BAUD4 acknowledges at that speed and switches to
+115200 baud after a 50 ms drain/settle interval. A bounded retry loop attempts
+startup five additional times at 500 ms intervals if initial configuration
+fails. The USB UART_START command remains available as an explicit retry.
 
 The generated configuration for the successful build included:
 
@@ -98,9 +100,9 @@ and truncated-frame rejection. It exercised 486 reserved checksum cases.
 
 ## Latest recorded target build
 
-The latest source modification was made on 27 November 2026 at 16:54:39 local
-time, and the target UF2 was generated at 16:55:13. The compiled src/main.c
-SHA-256 was 6feb63cb63269c8239d2394ea740f6445eb251accc38380759dc769bae84fd3b.
+The 57600-baud factory-startup build was generated on 27 November 2026 at
+17:11:28 local time. Its compiled src/main.c SHA-256 is
+ba4b081c057932e13868f3b1a8ff6eb6acfe20e791cb00e2f7752a3503fe0b60.
 The resulting build report was:
 
 | Metric | Result |
@@ -109,7 +111,7 @@ The resulting build report was:
 | RAM use | 55,656 bytes / 256 KiB (21.23%) |
 | UF2 file size | 581,632 bytes |
 | UF2 start address | 0x26000 |
-| UF2 SHA-256 | 9b54b1611a94b5add8fe43d70c0e60bc45a531bf69f68cd13c62c42013688759 |
+| UF2 SHA-256 | 7ebfe954439e21586b0786b3097e54f8631dc0be2d68afc31564f9f74dfe94bb |
 
 The latest build has no application C compiler warnings. Kconfig still
 reports UART_NRFX_UARTE_ENHANCED_RX as deprecated (it remains enabled by
@@ -178,3 +180,28 @@ not prove that the subsequent DFU transfer has been validated end-to-end.
 The USB diagnostic command `UF2` currently writes `0x57` and cold-reboots;
 that is a separate debug/recovery path. Preserve physical USB/UF2 recovery
 independently of the UART DFU transport.
+
+
+## Factory-baud correction (27 November 2026)
+
+The TX15 EdgeTX source for this target defines BLUETOOTH_FACTORY_BAUDRATE
+as 57600 and BLUETOOTH_DEFAULT_BAUDRATE as 115200. Its initialization
+sequence opens at 57600, transmits AT+BAUD4, waits 100 ms, then reopens at
+115200 before sending the name and power commands. The Nordic app acknowledges
+at 57600 and switches after 50 ms, leaving margin before EdgeTX changes baud.
+
+The Nordic application now mirrors that contract:
+
+- UARTE0 starts at 57600, including its RX and TX paths.
+- AT+BAUD4 replies OK while still at 57600.
+- After a 50 ms drain/settle interval, the UART is configured to 115200.
+- Subsequent AT+NAME, AT+TXPW2, and AT+ROLE1 traffic is expected at 115200.
+- TESTBAUD57600 remains a USB diagnostic command.
+
+The corrected 57600-startup UF2 was rebuilt and flashed through the physical
+Adafruit UF2 volume on the ANCHOR board. The bootloader UART DFU itself uses
+115200 baud (HCI UART configuration); that is independent of the application
+factory baud. Build and host parser tests passed.
+The exact TX15 hardware handshake has not yet been exercised after this
+correction; connect the TX15 UART before claiming the complete baud transition
+and AT sequence validated.
