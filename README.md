@@ -2,6 +2,17 @@
 
 This repository contains the ANCHOR receiver/bridge firmware, documented trainer protocol, browser installer, and update contracts. The ESP32-C5 implementation remains the reference firmware; an experimental native Nordic nRF52840 / Zephyr implementation is now preserved under `platforms/nordic-nrf52840/`. Yacht firmware and TinyGo BLE changes are maintained separately in [yacht](https://github.com/Doncuppjr/yacht).
 
+## Reproduce the Nordic TX15 bench
+
+The reference bench uses a RadioMaster TX15 and two Seeed XIAO nRF52840
+Sense boards. It has exercised Trainer, System OFF wake and reconnection,
+USB UART DFU at 460800 baud, Nordic Legacy Bluetooth DFU, and an 875 µs
+trainer connection interval with the native YACHT firmware.
+
+- [ANCHOR wiring, build and updates](platforms/nordic-nrf52840/docs/XIAO-VALIDATION.md)
+- [YACHT native build and measurement tools](https://github.com/Doncuppjr/yacht/tree/main/nordic-sci)
+- [EdgeTX fork and complete TX15 reproduction guide](https://github.com/Doncuppjr/edgetx/blob/main/docs/demos/TX15-ANCHOR-YACHT-PIPELINE.md)
+
 ## Supported boards and builds
 
 Anchor's shared application is in `firmware/anchor/src/anchor.cpp`; GPIO, wake and
@@ -22,12 +33,12 @@ selector for XIAO ESP32-C5 and **experimental** ESP32-C3 Super Mini firmware.
 The C3 target has passed compilation and image validation, but **has not been
 hardware-validated**. Check [board wiring](boards/README.md) before testing.
 
-Additional compact ESP32 profiles: XIAO C3/C6, Waveshare C3-Zero and C6 Super Mini; see [boards](boards/README.md). Nordic nRF52840 and Uno/Nano options are classified in [board candidates](boards/candidates/). These are not yet hardware-verified.
+Additional compact ESP32 profiles: XIAO C3/C6, Waveshare C3-Zero and C6 Super Mini; see [boards](boards/README.md). See [board candidates](boards/candidates/) for experimental targets. Native Nordic hardware validation applies to the XIAO nRF52840 Sense bench.
 
 ## Repositories and branches
 
 - EdgeTX general-purpose `AT+OTA` extension: [Doncuppjr/edgetx, bluetooth/generic-module-ota](https://github.com/Doncuppjr/edgetx/tree/bluetooth/generic-module-ota)
-- Full TX15 BLE reliability / low-latency / OTA / Back-to-cancel integration: [Doncuppjr/edgetx, bluetooth/tx15-ota-integration](https://github.com/Doncuppjr/edgetx/tree/bluetooth/tx15-ota-integration)
+- TX15 trainer and module integration: [Doncuppjr/edgetx](https://github.com/Doncuppjr/edgetx/tree/main)
 - Repository: `Doncuppjr/anchor:main`.
 
 ## Hardware / wire contract

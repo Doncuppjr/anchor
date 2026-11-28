@@ -184,3 +184,34 @@ The fast run used a 247-byte ATT MTU and negotiated 251-octet link-layer
 payloads. Its first attempt disconnected during START before any large
 firmware writes. Direct USB UF2 recovered ANCHOR, and the same installer
 passed after AiPal rediscovered the AdaDFU device.
+
+## 875 µs trainer link reproduction
+
+In an initialized nRF Connect SDK 3.3.0 workspace with the SDK toolchain
+active, set `ANCHOR` to the path of the Anchor checkout. Build with both
+optional profiles to enable SCI and the Nordic Legacy BLE DFU menu on a
+matching TX15. The `DTC_OVERLAY_FILE` setting selects the ANCHOR RGB LEDs.
+
+```sh
+app="$ANCHOR/platforms/nordic-nrf52840"
+west build -b xiao_ble/nrf52840/sense -d build-anchor-tx15 "$app" -- \
+  -DDTC_OVERLAY_FILE="$app/boards/xiao_ble_nrf52840_sense.overlay" \
+  -DEXTRA_CONF_FILE="$app/conf/control.conf;$app/conf/ble-dfu-bench.conf;$app/conf/sci-bench.conf"
+```
+
+Use `build-anchor-tx15/nordic-nrf52840/zephyr/zephyr.uf2` for direct USB
+application flashing. Use the application HEX for a Nordic DFU package.
+Follow the bootloader guide when preparing a new ANCHOR board for TX15
+passthrough or Nordic BLE DFU.
+
+Build and flash the [native YACHT bench image](https://github.com/Doncuppjr/yacht/tree/main/nordic-sci),
+then start a TX15 Trainer session. The USB consoles report the negotiated
+interval. The tested XIAO pair reported 875 µs with LE 2M and 70 µs ACL
+inter-frame spacing. The synthetic-gyro capture delivered a median of
+11.3 ms from ANCHOR-directed BLE submission on YACHT to the host reading
+a CRC-valid ELRS receiver frame. That benchmark used running hardware
+and synthetic roll inputs. Individual timing depends on the radio model,
+ELRS packet mode and capture setup.
+
+See the [EdgeTX fork reproduction guide](https://github.com/Doncuppjr/edgetx/blob/main/docs/demos/TX15-ANCHOR-YACHT-PIPELINE.md)
+for the required TX15 build options, model mapping and measurement steps.

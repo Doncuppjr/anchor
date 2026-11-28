@@ -50,13 +50,12 @@ replacement for every ESP32 ANCHOR behavior. In the current source:
   responses; they do not implement a full remote discovery/connect workflow.
 - `AT+NAME` and `AT+TXPW` currently echo compatibility responses rather than
   configuring a full persistent radio parameter set.
-- The hardware-UART DFU handoff and full transfer/activation have been
-  validated on XIAO using AiPal. TX15 passthrough remains to be tested.
+- The hardware-UART DFU handoff and full transfer have been validated using
+  TX15 USB passthrough at 460800 baud and with a 115200-baud fallback.
 
-The latest bench run verified automatic UARTE startup and TX completions while
-forwarding valid BLE trainer notifications. TX15-originated AT RX and role
-negotiation have not yet been observed. These distinctions are intentional
-documentation of the actual source, not claims that unfinished paths are complete.
+The [XIAO validation record](docs/XIAO-VALIDATION.md) covers the TX15 AT
+handshake, Trainer reception and reconnect, USB and Nordic Legacy BLE DFU,
+and the 875 µs SCI trainer link. Legacy BLE DFU and SCI are opt-in profiles.
 
 ## Build and test
 
