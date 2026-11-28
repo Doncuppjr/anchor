@@ -1,0 +1,37 @@
+From 2aea5a822db8c68a13a8a04ab57c6d0d946dc905 Mon Sep 17 00:00:00 2001
+From: ANCHOR development <anchor-dev@localhost>
+Date: Sat, 28 Nov 2026 03:59:27 +0000
+Subject: [PATCH] Enable hardware UART DFU on XIAO nRF52840 Sense
+
+---
+ src/boards/xiao_nrf52840_ble_sense/board.cmake | 2 ++
+ src/boards/xiao_nrf52840_ble_sense/board.h     | 3 +++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/src/boards/xiao_nrf52840_ble_sense/board.cmake b/src/boards/xiao_nrf52840_ble_sense/board.cmake
+index 259fdbd..b46f330 100644
+--- a/src/boards/xiao_nrf52840_ble_sense/board.cmake
++++ b/src/boards/xiao_nrf52840_ble_sense/board.cmake
+@@ -2,3 +2,5 @@ set(MCU_VARIANT nrf52840)
+ if (NOT DEFINED SD_VERSION)
+   set(SD_VERSION 7.3.0)
+ endif ()
++
++set(ENABLE_UART_DFU ON)
+diff --git a/src/boards/xiao_nrf52840_ble_sense/board.h b/src/boards/xiao_nrf52840_ble_sense/board.h
+index cd74bc9..552e555 100644
+--- a/src/boards/xiao_nrf52840_ble_sense/board.h
++++ b/src/boards/xiao_nrf52840_ble_sense/board.h
+@@ -25,6 +25,9 @@
+ #ifndef _XIAO_BLE_SENSE
+ #define _XIAO_BLE_SENSE
+ 
++#define ANCHOR_UART_TX PINNUM(1, 11) // D6
++#define ANCHOR_UART_RX PINNUM(1, 12) // D7
++
+ /*------------------------------------------------------------------*/
+ /* LED
+  *------------------------------------------------------------------*/
+-- 
+2.56.1
+

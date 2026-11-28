@@ -1,0 +1,9 @@
+mainmenu "ANCHOR native Nordic firmware"
+
+source "Kconfig.zephyr"
+
+config ANCHOR_LEGACY_BLE_DFU
+	bool "Advertise legacy Bluetooth DFU for bench testing"
+	help
+	  Allow EdgeTX to enter the installed Adafruit S140 bootloader.
+	  Enable only for controlled testing with the unsigned bench bootloader.

@@ -1,6 +1,6 @@
 # ANCHOR + YACHT Bluetooth Trainer bridge
 
-This standalone repository contains the ESP32-C5 Anchor receiver/bridge firmware, documented trainer protocol, browser installer, and optional AT OTA contract. Yacht firmware and TinyGo BLE changes are maintained separately in [yacht](https://github.com/Doncuppjr/yacht).
+This repository contains the ANCHOR receiver/bridge firmware, documented trainer protocol, browser installer, and update contracts. The ESP32-C5 implementation remains the reference firmware; an experimental native Nordic nRF52840 / Zephyr implementation is now preserved under `platforms/nordic-nrf52840/`. Yacht firmware and TinyGo BLE changes are maintained separately in [yacht](https://github.com/Doncuppjr/yacht).
 
 ## Supported boards and builds
 
@@ -60,6 +60,8 @@ The TX15 hardware displayed the optional Update module button, and the command s
 - EdgeTX radio firmware is maintained separately; it is not built or shipped by Anchor.
 - Yacht/nRF52840 firmware is maintained in [yacht](https://github.com/Doncuppjr/yacht) and is not shipped by Anchor.
 - `docs/PROTOCOL.md` and `docs/BENCH-TEST.md`: transport contract and remaining checks.
+- `platforms/nordic-nrf52840/`: native NCS 3.3.0 / Zephyr application, hardware UART, AT command path, host parser test, build record and the custom Adafruit UART-DFU patch. This target is experimental; see its README for implemented behavior and known gaps.
+- [Nordic nRF52840 / Adafruit bootloader investigation](docs/NORDIC-NRF52840-BOOTLOADER.md): observed USB identity, UF2 recovery, UART DFU configuration and known limitations.
 - [USB web flashing guide](docs/USB-FLASHING.md): step-by-step browser installation with screenshots, erase choices, and recovery instructions.
 - [Installed-module USB update guide](docs/RADIO-USB-UPDATE.md): TX15 bridge workflow, recovery behavior and current bench validation.
 
