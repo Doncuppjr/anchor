@@ -66,6 +66,16 @@ Run the host-side
 trainer decoder test with `make test`. Build the UF2 image with `make build`
 from an initialized NCS 3.3.0 workspace and toolchain.
 
+## Shorter Connection Intervals bench profile
+
+Append `conf/sci-bench.conf` to the `EXTRA_CONF_FILE` list along with
+`conf/control.conf` and any DFU profile in use. The build initially connects
+at 7.5 ms and accepts a peripheral-initiated SCI request if both controllers
+support it. Use the native NCS YACHT bench application for this test.
+The USB console reports the controller minimum at startup and prints the
+actual connection interval, latency and subrate when the controller reports
+a connection-rate change.
+
 ## Source layout
 
 - `src/main.c`: BLE central, GATT discovery/subscription, trainer forwarding,

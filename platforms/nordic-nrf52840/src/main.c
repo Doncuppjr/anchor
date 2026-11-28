@@ -16,6 +16,36 @@
 #include <string.h>
 #include <errno.h>
 #include "trainer.h"
+static int start_bluetooth(void)
+{
+ int err = bt_enable(NULL);
+ if (err) {
+  return err;
+ }
+
+#if defined(CONFIG_BT_SHORTER_CONNECTION_INTERVALS)
+ uint16_t minimum_us;
+ err = bt_conn_le_read_min_conn_interval(&minimum_us);
+ if (!err) {
+  const struct bt_conn_le_conn_rate_param params = {
+   .interval_min_125us = minimum_us / 125,
+   .interval_max_125us = 60,
+   .subrate_min = 1,
+   .subrate_max = 1,
+   .supervision_timeout_10ms = 400,
+   .min_ce_len_125us = BT_HCI_LE_SCI_CE_LEN_MIN_125US,
+   .max_ce_len_125us = BT_HCI_LE_SCI_CE_LEN_MAX_125US,
+  };
+  err = bt_conn_le_conn_rate_set_defaults(&params);
+  printk("SCI controller_min_us=%u defaults=%d\n", minimum_us, err);
+ } else {
+  printk("SCI read minimum=%d\n", err);
+ }
+#endif
+
+ return 0;
+}
+
 static uint32_t startup_gp, startup_gp2, startup_reset;
 static int capture_boot_regs(void){startup_gp=NRF_POWER->GPREGRET;startup_gp2=NRF_POWER->GPREGRET2;startup_reset=NRF_POWER->RESETREAS;NRF_POWER->RESETREAS=startup_reset;return 0;}
 SYS_INIT(capture_boot_regs, PRE_KERNEL_1, 0);
@@ -240,7 +270,7 @@ static void at_command(const char *s){
  else if(!strcmp(s,"AT+ROLE1")){
   uart_reply("OK+Role:1");at_identity("Central:");role_active=true;
   atomic_set(&central_active,1);scan_after=k_uptime_get()+300;
-  if(!started){int e=bt_enable(NULL);printk("AT BLE init=%d\n",e);if(!e)started=true;}
+  if(!started){int e=start_bluetooth();printk("AT BLE init=%d\n",e);if(!e)started=true;}
  }
  else if(!strcmp(s,"AT+ROLE0")){stop_link();uart_reply("OK+Role:0");at_identity("Peripheral:");role_active=true;}
  else if(!strcmp(s,"AT+DISC?")){
@@ -324,7 +354,25 @@ static void connected(struct bt_conn *c,uint8_t err){
 }
 static void disconnected(struct bt_conn *c,uint8_t reason){printk("Disconnected reason=%u\n",reason);k_spinlock_key_t key=k_spin_lock(&sample_lock);latest_len=0;memset(latest,0,sizeof(latest));k_spin_unlock(&sample_lock,key);if(peer){bt_conn_unref(peer);peer=NULL;}if(atomic_get(&stream_ready))atomic_set(&lost_pending,1);atomic_clear(&stream_ready);atomic_clear(&link_pending);atomic_clear(&link_state);if(atomic_get(&central_active))k_work_reschedule(&scan_work,K_SECONDS(1));}
 static void phy(struct bt_conn *c,struct bt_conn_le_phy_info *p){printk("PHY tx=%u rx=%u\n",p->tx_phy,p->rx_phy);}
-BT_CONN_CB_DEFINE(callbacks)={.connected=connected,.disconnected=disconnected,.le_phy_updated=phy};
+#if defined(CONFIG_BT_SHORTER_CONNECTION_INTERVALS)
+static void conn_rate_changed(struct bt_conn *conn, uint8_t status,
+                              const struct bt_conn_le_conn_rate_changed *params)
+{
+ ARG_UNUSED(conn);
+ if (status) {
+  printk("SCI status=%u\n", status);
+  return;
+ }
+ printk("SCI interval_us=%u latency=%u subrate=%u\n",
+        params->interval_us, params->peripheral_latency, params->subrate_factor);
+}
+#endif
+BT_CONN_CB_DEFINE(callbacks)={
+ .connected=connected,.disconnected=disconnected,.le_phy_updated=phy,
+#if defined(CONFIG_BT_SHORTER_CONNECTION_INTERVALS)
+ .conn_rate_changed=conn_rate_changed,
+#endif
+};
 static bool match(struct bt_data *d,void *u){
  if(d->type==BT_DATA_UUID16_ALL||d->type==BT_DATA_UUID16_SOME){
   for(int i=0;i+1<d->data_len;i+=2){
@@ -408,6 +456,6 @@ int main(void){
  if(bt_enable_level==1){sleep_state="countdown";sleep_at=k_uptime_get()+2500;atomic_set(&sleep_pending,1);}
  int uart_result=wire_start();
  int64_t next_uart_retry=k_uptime_get()+500;
- int64_t next=0;while(1){host_poll();if(!heartbeat_result)leds_tick();commands();if(atomic_get(&uart_enabled))uart_commands();if(!atomic_get(&uart_enabled)&&uart_start_retries<5&&k_uptime_get()>=next_uart_retry){uart_start_retries++;uart_result=wire_start();next_uart_retry=k_uptime_get()+500;printk("UART startup retry=%u result=%d\n",uart_start_retries,uart_result);}if(start_requested&&!started){start_requested=false;printk("BT starting\n");int e=bt_enable(NULL);printk("BT init=%d\n",e);if(!e){started=true;scan();}}if(k_uptime_get()>=next){printk("STATS packets=%ld bytes=%ld\n",(long)atomic_get(&packets),(long)atomic_get(&bytes));uint16_t ch[8];size_t len;k_spinlock_key_t key=k_spin_lock(&sample_lock);memcpy(ch,latest,sizeof(ch));len=latest_len;k_spin_unlock(&sample_lock,key);
+ int64_t next=0;while(1){host_poll();if(!heartbeat_result)leds_tick();commands();if(atomic_get(&uart_enabled))uart_commands();if(!atomic_get(&uart_enabled)&&uart_start_retries<5&&k_uptime_get()>=next_uart_retry){uart_start_retries++;uart_result=wire_start();next_uart_retry=k_uptime_get()+500;printk("UART startup retry=%u result=%d\n",uart_start_retries,uart_result);}if(start_requested&&!started){start_requested=false;printk("BT starting\n");int e=start_bluetooth();printk("BT init=%d\n",e);if(!e){started=true;scan();}}if(k_uptime_get()>=next){printk("STATS packets=%ld bytes=%ld\n",(long)atomic_get(&packets),(long)atomic_get(&bytes));uint16_t ch[8];size_t len;k_spinlock_key_t key=k_spin_lock(&sample_lock);memcpy(ch,latest,sizeof(ch));len=latest_len;k_spin_unlock(&sample_lock,key);
  printk("FRAMES valid=%ld invalid=%ld boot=%ld len=%u channels=%u,%u,%u,%u,%u,%u,%u,%u\n",(long)atomic_get(&valid),(long)atomic_get(&invalid),(long)atomic_get(&boot),(unsigned)len,ch[0],ch[1],ch[2],ch[3],ch[4],ch[5],ch[6],ch[7]);printk("UART done=%ld abort=%ld error=%ld skipped=%ld\n",(long)atomic_get(&uart_done),(long)atomic_get(&uart_abort),(long)atomic_get(&uart_error),(long)atomic_get(&uart_skipped));next=k_uptime_get()+2000;}k_sleep(K_MSEC(10));}
 }
