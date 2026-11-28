@@ -44,10 +44,10 @@ replacement for every ESP32 ANCHOR behavior. In the current source:
   a manual retry if initial setup fails; startup retries five times at 500 ms
   intervals.
 - `AT+ROLE1` enables BLE and starts central scanning.
-- `AT+ROLE0` enables the BLE host but does not yet implement a complete BLE
-  peripheral advertising/connection role.
-- `AT+DISC?` and `AT+CON...` currently return compatibility placeholder
-  responses; they do not implement a full remote discovery/connect workflow.
+- `AT+ROLE0` stops the trainer central and acknowledges the radio's role
+  change. The native application has no BLE peripheral telemetry implementation.
+- `AT+DISC?` reports matching trainer advertisements and `AT+CON...` selects
+  the peer for the current session. EdgeTX keeps the saved peer on the radio.
 - `AT+NAME` and `AT+TXPW` currently echo compatibility responses rather than
   configuring a full persistent radio parameter set.
 - The hardware-UART DFU handoff and full transfer have been validated using
