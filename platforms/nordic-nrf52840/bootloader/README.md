@@ -17,7 +17,11 @@ The patch adds an `anchor` board target, selects the Nordic hardware UART for
 HCI SLIP when `GPREGRET == 0x59`, and leaves the ordinary USB/UF2 and BLE DFU
 paths available for their normal selectors.
 
-## Apply and build
+## XIAO Sense reference target
+
+Apply patches/0002-xiao-sense-uart-dfu.patch after patch 0001. Commit 2aea5a8 adds only the XIAO board pin definitions and enables the existing UART DFU transport. Build board xiao_nrf52840_ble_sense with S140 7.3.0. See [verified procedure](../docs/XIAO-VALIDATION.md).
+
+## Historical Pro Micro apply and build
 
 ```sh
 git clone --recurse-submodules https://github.com/adafruit/Adafruit_nRF52_Bootloader.git

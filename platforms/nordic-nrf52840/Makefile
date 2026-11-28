@@ -1,11 +1,18 @@
-BOARD ?= promicro_nrf52840/nrf52840/uf2
-BUILD_DIR ?= $(CURDIR)/../../build/nordic-nrf52840
+BOARD ?= xiao_ble/nrf52840/sense
+BUILD_DIR ?= $(CURDIR)/../../build/$(subst /,-,$(BOARD))
+NRFUTIL ?= adafruit-nrfutil
+APP_HEX := $(BUILD_DIR)/nordic-nrf52840/zephyr/zephyr.hex
+DFU_ZIP := $(BUILD_DIR)/anchor-dfu.zip
 CONTROL_CONF := $(CURDIR)/conf/control.conf
 
-.PHONY: build test clean
+.PHONY: build dfu-package test clean
 
 build:
 	west build -p always -b $(BOARD) $(CURDIR) -d $(BUILD_DIR) -- -DEXTRA_CONF_FILE=$(CONTROL_CONF)
+
+dfu-package:
+	$(NRFUTIL) dfu genpkg --dev-type 0x0052 --dev-revision 52840 --application "$(APP_HEX)" "$(DFU_ZIP)"
+	python3 tests/check_dfu_package.py "$(DFU_ZIP)"
 
 test:
 	mkdir -p $(CURDIR)/build-host

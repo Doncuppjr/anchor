@@ -4,15 +4,15 @@ This is the native Zephyr/Nordic Connect SDK implementation of ANCHOR. It is
 separate from the ESP32-C5 Arduino implementation in `firmware/anchor/` and
 from the TinyGo YACHT head-tracker firmware in the `yacht` repository.
 
-The current reference target is the Pro Micro nRF52840:
+The current reference target is the Seeed XIAO nRF52840 Sense. See [XIAO validation](docs/XIAO-VALIDATION.md) for the verified baseline.
 
-- Zephyr board: `promicro_nrf52840/nrf52840/uf2`
+- Zephyr board: `xiao_ble/nrf52840/sense`
 - MCU: Nordic nRF52840
 - SDK: nRF Connect SDK 3.3.0 (Zephyr 4.3.99)
 - USB console: USB CDC ACM
 - Application UART: UARTE0, initially 57600 baud (EdgeTX factory baud);
   AT+BAUD4 switches it to 115200 baud. Both modes use 8N1, no flow control.
-- Application UART pins on this Zephyr board definition: TX P0.09, RX P0.10
+- Application UART pins on this Zephyr board definition: TX D6/P1.11, RX D7/P1.12
 - BLE role: central scanner/client for the FrSky-compatible trainer service
 
 ## Current functionality
@@ -50,9 +50,8 @@ replacement for every ESP32 ANCHOR behavior. In the current source:
   responses; they do not implement a full remote discovery/connect workflow.
 - `AT+NAME` and `AT+TXPW` currently echo compatibility responses rather than
   configuring a full persistent radio parameter set.
-- The hardware-UART DFU handoff is implemented in the application, but a full
-  end-to-end UART DFU transfer and recovery regression remains a separate
-  validation item.
+- The hardware-UART DFU handoff and full transfer/activation have been
+  validated on XIAO using AiPal. TX15 passthrough remains to be tested.
 
 The latest bench run verified automatic UARTE startup and TX completions while
 forwarding valid BLE trainer notifications. TX15-originated AT RX and role
@@ -83,9 +82,9 @@ host test executable are intentionally not committed. They are build inputs
 or outputs, not application source.
 
 
-## Teyleten Robot Pro Micro power control
+## Historical Teyleten Robot Pro Micro power control
 
-The reference hardware is the Teyleten Robot Pro Micro nRF52840 (Amazon
+The retired bench reference hardware was the Teyleten Robot Pro Micro nRF52840 (Amazon
 ASIN B0CYLNZ6V4). Its product listing describes a 3.7 V lithium battery
 interface and a software-controlled LED/VCC power switch. The matching
 Pro Micro pinout identifies P0.13 as the switched VCC control:
@@ -94,7 +93,7 @@ Pro Micro pinout identifies P0.13 as the switched VCC control:
 - P0.13 HIGH: switched VCC output on (3.3 V).
 - P0.15: onboard status LED.
 
-ANCHOR therefore configures P0.13 HIGH at startup and blinks P0.15 as an
+On the Pro Micro target ANCHOR configures P0.13 HIGH at startup and blinks its board LED as an
 application heartbeat. USB diagnostic commands VCC_LOW and VCC_HIGH remain
 available to test the rail manually. This pin polarity is specific to the
 Teyleten Robot / nRFMicro-style board documented here; do not generalize

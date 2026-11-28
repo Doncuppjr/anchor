@@ -1,5 +1,19 @@
 # Hardware notes
 
+Current reference: Seeed XIAO nRF52840 Sense, Zephyr xiao_ble/nrf52840/sense.
+
+| Function | XIAO pin | MCU GPIO |
+| --- | --- | --- |
+| UART TX (application and DFU) | D6 | P1.11 |
+| UART RX (application and DFU) | D7 | P1.12 |
+| Active-low enable sense | D0 | P0.02 |
+| Green application heartbeat | onboard | P0.30 |
+| Red / blue bootloader LEDs | onboard | P0.26 / P0.06 |
+
+All three LEDs are active low. UART starts at 57600, switches to 115200; DFU is 115200 8N1, no flow control. No switched VCC control on XIAO. See [bench validation](docs/XIAO-VALIDATION.md).
+
+## Historical Pro Micro target (retired)
+
 Reference target: Pro Micro nRF52840 using Zephyr board target
 `promicro_nrf52840/nrf52840/uf2`.
 

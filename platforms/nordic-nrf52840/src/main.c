@@ -13,17 +13,37 @@
 #include <string.h>
 #include <errno.h>
 #include "trainer.h"
-static uint32_t startup_gp, startup_gp2;
-static int capture_boot_regs(void){startup_gp=NRF_POWER->GPREGRET;startup_gp2=NRF_POWER->GPREGRET2;return 0;}
+static uint32_t startup_gp, startup_gp2, startup_reset;
+static int capture_boot_regs(void){startup_gp=NRF_POWER->GPREGRET;startup_gp2=NRF_POWER->GPREGRET2;startup_reset=NRF_POWER->RESETREAS;NRF_POWER->RESETREAS=startup_reset;return 0;}
 SYS_INIT(capture_boot_regs, PRE_KERNEL_1, 0);
 static const struct device *console=DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 static const struct device *gpio0=DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static int bt_enable_level=-1;
+static int heartbeat_result=-1;
+#if defined(CONFIG_BOARD_XIAO_BLE)
+static int vcc_enable_init(void){return 0;}
+static int vcc_set(int level){ARG_UNUSED(level);return -ENOTSUP;}
+static int vcc_level(void){return -ENOTSUP;}
+#else
 static int vcc_enable_init(void){if(!device_is_ready(gpio0))return -ENODEV;return gpio_pin_configure(gpio0,13,GPIO_OUTPUT_ACTIVE);}
-static int led_init(void){if(!device_is_ready(gpio0))return -ENODEV;return gpio_pin_configure(gpio0,15,GPIO_OUTPUT_INACTIVE);}
 static int vcc_set(int level){return gpio_pin_set(gpio0,13,level);}
-static int vcc_level(void){return gpio_pin_get(gpio0,13);}
-static int led_set(int level){return gpio_pin_set(gpio0,15,level);}
+static int vcc_level(void){return (NRF_P0->OUT>>13)&1;}
+#endif
+#if defined(CONFIG_BOARD_XIAO_BLE)
+static const struct gpio_dt_spec status_led=GPIO_DT_SPEC_GET(DT_ALIAS(led1),gpios);
+#else
+static const struct gpio_dt_spec status_led=GPIO_DT_SPEC_GET(DT_ALIAS(led0),gpios);
+#endif
+static int led_init(void){if(!gpio_is_ready_dt(&status_led))return -ENODEV;return gpio_pin_configure_dt(&status_led,GPIO_OUTPUT_INACTIVE);}
+static void heartbeat(struct k_timer *timer){ARG_UNUSED(timer);gpio_pin_toggle_dt(&status_led);}
+K_TIMER_DEFINE(heartbeat_timer,heartbeat,NULL);
+static int board_power_init(void){
+ int e=vcc_enable_init();if(e)return e;
+ e=led_init();
+ return e;
+}
+SYS_INIT(board_power_init,POST_KERNEL,90);
+#define printk(...) do {uint32_t dtr=0;if(device_is_ready(console)&&!uart_line_ctrl_get(console,UART_LINE_CTRL_DTR,&dtr)&&dtr)printk(__VA_ARGS__);} while(0)
 static int bt_enable_init(void){if(!device_is_ready(gpio0))return -ENODEV;return gpio_pin_configure(gpio0,2,GPIO_INPUT);}
 static int bt_enable_read(void){return gpio_pin_get(gpio0,2);}
 RING_BUF_DECLARE(rx,256);
@@ -166,7 +186,7 @@ static void commands(void){
  while(ring_buf_get(&rx,&c,1)){
  if(c==10||c==13){if(n){b[n]=0;if(!strcmp(b,"UART_DFU")||!strcmp(b,"AT+DOWNLOAD")){printk("UART DFU reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x59;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"UF2")){printk("UF2 reboot\n");k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x57;sys_reboot(SYS_REBOOT_COLD);}else if(!strcmp(b,"TESTBAUD57600")){if(atomic_get(&uart_enabled)){struct uart_config c={.baudrate=57600,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?115200:57600);printk("UART test baud=%ld result=%d\n",(long)atomic_get(&at_baud),e);}}else if(!strcmp(b,"UART_START")){uart_start_retries=5;wire_start();}
  else if(!strcmp(b,"VCC_LOW")){int e=vcc_set(0);printk("VCC P0.13=LOW (VCC OFF) result=%d readback=%d\\n",e,vcc_level());}
- else if(!strcmp(b,"VCC_HIGH")){int e=vcc_set(1);printk("VCC P0.13=HIGH (VCC ON) result=%d readback=%d\\n",e,vcc_level());}else if(!strcmp(b,"BT_START")){role_active=true;start_requested=true;}else if(!strcmp(b,"PING")){int en=bt_enable_read();int vcc=gpio_pin_get(gpio0,13);printk("PONG ANCHOR GPREGRET=%02x GPREGRET2=%02x START=%02x/%02x MARK=%08x BT_EN_P0.02=%s(%d) VCC_EN_P0.13=%s(%d)\n",(unsigned)NRF_POWER->GPREGRET,(unsigned)NRF_POWER->GPREGRET2,(unsigned)startup_gp,(unsigned)startup_gp2,(unsigned)(*((volatile uint32_t*)0x20007F78)),en>0?"HIGH":en==0?"LOW":"ERROR",en,vcc>0?"HIGH":vcc==0?"LOW":"ERROR",vcc);}n=0;}}
+ else if(!strcmp(b,"VCC_HIGH")){int e=vcc_set(1);printk("VCC P0.13=HIGH (VCC ON) result=%d readback=%d\\n",e,vcc_level());}else if(!strcmp(b,"BT_START")){role_active=true;start_requested=true;}else if(!strcmp(b,"PING")){int en=bt_enable_read();int vcc=vcc_level();printk("PONG ANCHOR GPREGRET=%02x GPREGRET2=%02x START=%02x/%02x MARK=%08x BT_EN_P0.02=%s(%d) VCC_EN_P0.13=%s(%d) RESET=%08x LED=%d\n",(unsigned)NRF_POWER->GPREGRET,(unsigned)NRF_POWER->GPREGRET2,(unsigned)startup_gp,(unsigned)startup_gp2,IS_ENABLED(CONFIG_BOARD_XIAO_BLE)?0U:(unsigned)(*((volatile uint32_t*)0x20007F78)),en>0?"HIGH":en==0?"LOW":"ERROR",en,vcc>0?"HIGH":vcc==0?"LOW":"ERROR",vcc,(unsigned)startup_reset,heartbeat_result);}n=0;}}
  else if(n<sizeof(b)-1)b[n++]=c;else n=0;
  }}
 static uint8_t notify(struct bt_conn *c,struct bt_gatt_subscribe_params *p,const void *data,uint16_t len){
@@ -233,21 +253,21 @@ static void found(const bt_addr_le_t *addr,int8_t rssi,uint8_t type,struct net_b
 }
 static void scan(void){int e=bt_le_scan_start(BT_LE_SCAN_ACTIVE,found);printk("Scan result=%d\n",e);}
 int main(void){
+ heartbeat_result=led_init();
+ if(!heartbeat_result){gpio_pin_set_dt(&status_led,1);k_timer_start(&heartbeat_timer,K_MSEC(500),K_MSEC(500));}
  uint32_t lo=NRF_FICR->DEVICEADDR[0],hi=NRF_FICR->DEVICEADDR[1];
  for(int i=0;i<4;i++)anchor_identity.a.val[i]=(lo>>(8*i))&0xff;
  anchor_identity.a.val[4]=hi&0xff;anchor_identity.a.val[5]=((hi>>8)&0x3f)|0xc0;anchor_identity.type=BT_ADDR_LE_RANDOM;
  bt_id_create(&anchor_identity,NULL);
  uart_irq_callback_user_data_set(console,serial_irq,NULL);uart_irq_rx_enable(console);k_sem_init(&at_ready,0,1);
  printk("ANCHOR USB READY\n");
- printk("BUILD: ANCHOR_UART_AT_RXPOOL_AUTO_START_VCCHIGH_LEDHEARTBEAT\n");
- int vcc_init=vcc_enable_init();
- int led_result=led_init();
- printk("GPIO init P0.13 HIGH (VCC ON)=%d P0.15 LED=%d\n",vcc_init,led_result);
+ printk("BUILD: ANCHOR_UART_AT_RXPOOL_AUTO_START_XIAO_GREEN_HEARTBEAT_UART_DFU\n");
+ printk("EARLY_GPIO reset=%08x board-vcc-control=%d\n",(unsigned)startup_reset,vcc_level());
  int en_init=bt_enable_init();
  printk("BT_EN P0.02 input init=%d\n",en_init);
  if(!en_init){bt_enable_level=bt_enable_read();printk("BT_EN P0.02=%s (%d)\n",bt_enable_level?"HIGH":"LOW",bt_enable_level);}
  int uart_result=wire_start();
  int64_t next_uart_retry=k_uptime_get()+500;
- int64_t next_led=k_uptime_get()+500;int led_level=0;int64_t next=0;while(1){commands();if(k_uptime_get()>=next_led){led_level=!led_level;int le=led_set(led_level);if(le)printk("LED P0.15 set error=%d\\n",le);next_led=k_uptime_get()+500;}if(atomic_get(&uart_enabled))uart_commands();if(!atomic_get(&uart_enabled)&&uart_start_retries<5&&k_uptime_get()>=next_uart_retry){uart_start_retries++;uart_result=wire_start();next_uart_retry=k_uptime_get()+500;printk("UART startup retry=%u result=%d\n",uart_start_retries,uart_result);}if(start_requested&&!started){start_requested=false;printk("BT starting\n");int e=bt_enable(NULL);printk("BT init=%d\n",e);if(!e){started=true;scan();}}if(k_uptime_get()>=next){printk("STATS packets=%ld bytes=%ld\n",(long)atomic_get(&packets),(long)atomic_get(&bytes));uint16_t ch[8];size_t len;k_spinlock_key_t key=k_spin_lock(&sample_lock);memcpy(ch,latest,sizeof(ch));len=latest_len;k_spin_unlock(&sample_lock,key);
+ int64_t next=0;while(1){commands();if(atomic_get(&uart_enabled))uart_commands();if(!atomic_get(&uart_enabled)&&uart_start_retries<5&&k_uptime_get()>=next_uart_retry){uart_start_retries++;uart_result=wire_start();next_uart_retry=k_uptime_get()+500;printk("UART startup retry=%u result=%d\n",uart_start_retries,uart_result);}if(start_requested&&!started){start_requested=false;printk("BT starting\n");int e=bt_enable(NULL);printk("BT init=%d\n",e);if(!e){started=true;scan();}}if(k_uptime_get()>=next){printk("STATS packets=%ld bytes=%ld\n",(long)atomic_get(&packets),(long)atomic_get(&bytes));uint16_t ch[8];size_t len;k_spinlock_key_t key=k_spin_lock(&sample_lock);memcpy(ch,latest,sizeof(ch));len=latest_len;k_spin_unlock(&sample_lock,key);
  printk("FRAMES valid=%ld invalid=%ld boot=%ld len=%u channels=%u,%u,%u,%u,%u,%u,%u,%u\n",(long)atomic_get(&valid),(long)atomic_get(&invalid),(long)atomic_get(&boot),(unsigned)len,ch[0],ch[1],ch[2],ch[3],ch[4],ch[5],ch[6],ch[7]);printk("UART done=%ld abort=%ld error=%ld skipped=%ld\n",(long)atomic_get(&uart_done),(long)atomic_get(&uart_abort),(long)atomic_get(&uart_error),(long)atomic_get(&uart_skipped));int en=bt_enable_read();if(en>=0&&en!=bt_enable_level){bt_enable_level=en;printk("BT_EN P0.02=%s (%d)\n",en?"HIGH":"LOW",en);}next=k_uptime_get()+2000;}k_sleep(K_MSEC(10));}
 }
