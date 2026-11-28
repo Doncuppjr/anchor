@@ -74,3 +74,40 @@ Use unmodified nrfutil HCI SLIP implementation, including its flash erase wait a
 - Post-wake snapshot: 9494 valid frames, 8620 UART completions, zero invalid frames, UART errors or aborts. User confirmed short-disable cancellation and another successful sleep/reconnect cycle; subsequent diagnostic again reported OFF_WAKE=1 and RETAINED=a6.
 - Host regression: 100000 vectors passed. Instrumented build: flash 300644 bytes, RAM 55912 bytes; UF2 installed on verified ANCHOR serial DEC210BA233A837A.
 - Remaining: standalone operation without USB, current measurement, remote software-triggered UF2 entry (connector blocked the command), actual TX15 passthrough DFU, discovery/persistence, telemetry and SCI performance. USB diagnostics required sudo on AiPal. No production qualification claimed.
+
+## TX15 USB UART DFU at 460800 baud
+
+Hardware validation on 2026-11-28 used the XIAO nRF52840 Sense ANCHOR, a TX15
+running EdgeTX build `8a70a1c0` (GitLab pipeline 2731, job 12089), and an
+application-only Nordic package with device type `0x0052` and revision `52840`.
+The TX15 installer runs on the host and communicates through the radio's
+external USB CDC port. The radio negotiates the module UART rate separately.
+
+Select **SYS → Hardware → Bluetooth → Update module → USB**. From this platform
+directory, run the host wrapper with a Python environment containing
+`adafruit-nrfutil`. Use the verified TX15 CDC device path.
+
+```sh
+python tools/usb_dfu.py --port "$TX15_CDC" --baud 460800 --package anchor.zip
+```
+
+The wrapper requires an exact protocol-2 baud banner before issuing DOWNLOAD.
+It keeps the CDC connection open from READY through the stock HCI SLIP
+transfer and sends FINISH on a fresh connection. To resume a retained
+bootloader session, run the same command with `--recover`.
+
+| Bench run | START through STOP | HCI sends | UART errors | RX overruns |
+| --- | ---: | ---: | ---: | ---: |
+| First 460800-baud transfer | 23.571 s | 591 of 591 expected | 0 | 0 |
+| Reconnect after DOWNLOAD, before START | 23.572 s | 591 of 591 expected | 0 | 0 |
+
+Both runs sent the 300,788-byte application, received FINISH, and showed
+ANCHOR re-enumerating in application mode. After the first run, the TX15
+displayed `Module restarted. Bluetooth restored`, and ANCHOR again received
+valid BLE trainer frames and forwarded them over UART. Each run forwarded
+309,229 host bytes and 3,559 response bytes. The elapsed time includes the
+stock tool's flash erase wait.
+
+The recovery run verified host reconnection after the radio had switched baud
+and before the tool sent START. Recovery during erase or DATA and the 115200
+fallback through this bridge remain to be checked.

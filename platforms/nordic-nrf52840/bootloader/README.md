@@ -21,6 +21,15 @@ paths available for their normal selectors.
 
 Apply patches/0002-xiao-sense-uart-dfu.patch after patch 0001. Commit 2aea5a8 adds only the XIAO board pin definitions and enables the existing UART DFU transport. Build board xiao_nrf52840_ble_sense with S140 7.3.0. See [verified procedure](../docs/XIAO-VALIDATION.md).
 
+## Negotiated 460800-baud UART DFU
+
+Apply [patch 0003](patches/0003-anchor-uart-dfu-460800.patch) after patch 0002
+for the high-speed XIAO build. Bootloader commit
+`b9bcf37594510d43e646e45d21e0afcea6343bfa`
+selects 460800 baud for GPREGRET 0x5A. GPREGRET 0x59 still selects 115200 baud.
+Both modes use the Nordic HCI SLIP transport with the existing timeout.
+See [the TX15 validation record](../docs/XIAO-VALIDATION.md#tx15-usb-uart-dfu-at-460800-baud).
+
 ## Historical Pro Micro apply and build
 
 ```sh

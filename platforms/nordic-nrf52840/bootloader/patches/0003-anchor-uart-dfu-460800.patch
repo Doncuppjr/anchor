@@ -1,0 +1,57 @@
+From b9bcf37594510d43e646e45d21e0afcea6343bfa Mon Sep 17 00:00:00 2001
+From: DaVinci <davinci@thinstation.org>
+Date: Sat, 28 Nov 2026 14:51:03 +0000
+Subject: [PATCH] Add 460800-baud ANCHOR UART DFU selector
+
+Keep the original 115200-baud selector and HCI SLIP retransmission timeout. The TX15 USB bridge completed a 300788-byte application update at the negotiated high rate on XIAO nRF52840 Sense.
+---
+ lib/sdk/components/libraries/hci/hci_slip.c | 5 +++++
+ src/main.c                                  | 4 +++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/lib/sdk/components/libraries/hci/hci_slip.c b/lib/sdk/components/libraries/hci/hci_slip.c
+index bb7aaf3..bb99859 100644
+--- a/lib/sdk/components/libraries/hci/hci_slip.c
++++ b/lib/sdk/components/libraries/hci/hci_slip.c
+@@ -49,6 +49,7 @@
+ #include "tusb.h"
+ #ifdef ENABLE_UART_DFU
+ extern bool uart_dfu_selected;
++extern bool uart_dfu_fast;
+ #endif
+ #endif
+ 
+@@ -419,7 +420,11 @@ static uint32_t slip_uart_open(void)
+         HCI_UART_CTS_PIN,
+         HCI_UART_FLOW_CONTROL,
+         false,
++#if defined(NRF_USBD) && defined(ENABLE_UART_DFU)
++        uart_dfu_fast ? UART_BAUDRATE_BAUDRATE_Baud460800 : HCI_UART_BAUDRATE
++#else
+         HCI_UART_BAUDRATE
++#endif
+     };
+ 
+     err_code = app_uart_init(&comm_params,
+diff --git a/src/main.c b/src/main.c
+index 08d2337..8989a0d 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -135,6 +135,7 @@ uint32_t* dbl_reset_mem = ((uint32_t*) DFU_DBL_RESET_MEM);
+ bool _ota_dfu = false;
+ #ifdef ENABLE_UART_DFU
+ bool uart_dfu_selected = false;
++bool uart_dfu_fast = false;
+ #endif
+ bool _ota_connected = false;
+ bool _ota_was_connected = false;
+@@ -262,7 +263,8 @@ static void check_dfu_mode(void) {
+                    (((*dbl_reset_mem) == DFU_DBL_RESET_MAGIC) && reason_reset_pin);
+ 
+   #ifdef ENABLE_UART_DFU
+-  uart_dfu_selected = (gpregret == 0x59);
++  uart_dfu_fast = (gpregret == 0x5A);
++  uart_dfu_selected = (gpregret == 0x59) || uart_dfu_fast;
+   dfu_start = dfu_start || uart_dfu_selected;
+   #endif
+ 

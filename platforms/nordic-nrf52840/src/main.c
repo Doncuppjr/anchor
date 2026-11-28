@@ -91,6 +91,7 @@ static atomic_t uart_enabled, uart_done, uart_abort, uart_error, uart_skipped;
 static atomic_t at_baud;
 static uint8_t uart_start_retries;
 static bool update_authorized;
+static uint8_t update_selector=0x59;
 static uint8_t uart_rx_buf[128], uart_rx_buf_pool[3][128];
 static bool rx_buf_busy[4];
 K_MSGQ_DEFINE(at_q,sizeof(uint8_t),256,4);
@@ -197,7 +198,7 @@ static void stop_link(void){
  k_spinlock_key_t key=k_spin_lock(&sample_lock);latest_len=0;k_spin_unlock(&sample_lock,key);
 }
 static void reset_host(void){
- stop_link();role_active=false;update_authorized=false;start_requested=false;
+ stop_link();role_active=false;update_authorized=false;update_selector=0x59;start_requested=false;
  at_line_len=0;k_msgq_purge(&at_q);
  struct uart_config cfg={.baudrate=57600,.parity=UART_CFG_PARITY_NONE,.stop_bits=UART_CFG_STOP_BITS_1,.data_bits=UART_CFG_DATA_BITS_8,.flow_ctrl=UART_CFG_FLOW_CTRL_NONE};
  k_mutex_lock(&uart_tx_mutex,K_FOREVER);
@@ -214,9 +215,14 @@ static void at_command(const char *s){
   int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?57600:115200);
   printk("UART BAUD4 result=%d baud=%ld\n",e,(long)atomic_get(&at_baud));
  }else if(!strncmp(s,"AT+NAME",7)){char line[64];snprintf(line,sizeof(line),"OK+Name:%.55s",s+7);uart_reply(line);}
- else if(!strncmp(s,"AT+TXPW",7)){char line[32];snprintf(line,sizeof(line),"OK+Txpw:%.23s",s+7);uart_reply(line);uart_reply("OK+CAPS:1,UPDATE_UART");at_identity("Central:");}
- else if(!strcmp(s,"AT+UPDATE=UART")){if(role_active){uart_reply("ERROR");return;}update_authorized=true;uart_reply("OK+UPDATE:UART");}
- else if(!strcmp(s,"AT+DOWNLOAD")){if(!update_authorized){uart_reply("ERROR");return;}uart_reply("OK+DOWNLOAD");atomic_set(&update_led,1);leds_tick();k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=0x59;sys_reboot(SYS_REBOOT_COLD);}
+ else if(!strncmp(s,"AT+TXPW",7)){char line[32];snprintf(line,sizeof(line),"OK+Txpw:%.23s",s+7);uart_reply(line);uart_reply("OK+CAPS:1,UPDATE_UART,UPDATE_UART460800");at_identity("Central:");}
+ else if(!strcmp(s,"AT+UPDATE=UART")||!strcmp(s,"AT+UPDATE=UART,460800")){
+  if(role_active){uart_reply("ERROR");return;}
+  update_selector=!strcmp(s,"AT+UPDATE=UART,460800")?0x5A:0x59;
+  update_authorized=true;
+  uart_reply(update_selector==0x5A?"OK+UPDATE:UART,460800":"OK+UPDATE:UART");
+ }
+ else if(!strcmp(s,"AT+DOWNLOAD")){if(!update_authorized){uart_reply("ERROR");return;}uart_reply("OK+DOWNLOAD");atomic_set(&update_led,1);leds_tick();k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=update_selector;sys_reboot(SYS_REBOOT_COLD);}
  else if(!strcmp(s,"AT+ROLE1")){
   uart_reply("OK+Role:1");at_identity("Central:");role_active=true;
   atomic_set(&central_active,1);scan_after=k_uptime_get()+300;
