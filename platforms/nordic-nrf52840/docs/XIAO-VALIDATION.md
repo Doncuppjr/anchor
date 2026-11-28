@@ -100,8 +100,9 @@ bootloader session, run the same command with `--recover`.
 | --- | ---: | ---: | ---: | ---: |
 | First 460800-baud transfer | 23.571 s | 591 of 591 expected | 0 | 0 |
 | Reconnect after DOWNLOAD, before START | 23.572 s | 591 of 591 expected | 0 | 0 |
+| 115200-baud fallback | 43.550 s | 591 of 591 expected | 0 | 0 |
 
-Both runs sent the 300,788-byte application, received FINISH, and showed
+All three runs sent the 300,788-byte application, received FINISH, and showed
 ANCHOR re-enumerating in application mode. After the first run, the TX15
 displayed `Module restarted. Bluetooth restored`, and ANCHOR again received
 valid BLE trainer frames and forwarded them over UART. Each run forwarded
@@ -109,5 +110,23 @@ valid BLE trainer frames and forwarded them over UART. Each run forwarded
 stock tool's flash erase wait.
 
 The recovery run verified host reconnection after the radio had switched baud
-and before the tool sent START. Recovery during erase or DATA and the 115200
-fallback through this bridge remain to be checked.
+and before the tool sent START. Recovery during erase or DATA remains to be
+checked. For the fallback run, a temporary ANCHOR application advertised only
+UPDATE_UART. EdgeTX negotiated 115200 baud and restored the regular application,
+including its high-speed capability. The radio reported Bluetooth restored
+and the operator confirmed Trainer reconnected.
+
+## Software-triggered direct USB update
+
+On 2026-11-28, sending the UF2 diagnostic command on the verified ANCHOR
+application CDC port produced a UF2 reboot message. The same physical port
+then presented USB ID 2886:0045 and board ID nRF52840-SeeedXiaoSense-v1.
+The application UF2 was checked for its nRF52840 family and for addresses
+inside the application region before copying it to XIAO-SENSE. The bootloader
+disconnected during filesystem sync after copying the image. ANCHOR
+re-enumerated as 2fe3:0004 and replied to PING.
+
+After the direct reboot, the existing EdgeTX trainer session needed an
+Off-to-Trainer toggle to repeat the role handshake. The subsequent USB
+diagnostics showed an active peer, an active role, advancing valid trainer
+frames and UART completion counts, and zero UART aborts or errors.
