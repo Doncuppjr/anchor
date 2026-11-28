@@ -62,3 +62,15 @@ Use unmodified nrfutil HCI SLIP implementation, including its flash erase wait a
 - User confirmed green heartbeat after activation. Independent hardware UART AT at 57600 returned OK after update.
 - YACHT not modified in this session.
 - Next: standalone power/cold starts, real TX15 UART4 handshake and passthrough DFU, BLE role behavior and SCI negotiation.
+
+## TX15 trainer and System OFF validation (2026-11-27)
+
+- Native ANCHOR on XIAO nRF52840 Sense connected to TX15 UART4: D6 TX, D7 RX, D0 active-low enable. YACHT uses XIAO Sense.
+- Canonical Connected/DisConnected notifications and gated trainer forwarding restored working EdgeTX trainer channels.
+- Blue heartbeat; green searching/connecting breathing or solid connected; red sleep preparation/update indication. All controlled LEDs off during System OFF.
+- Sustained EN HIGH for 2500 ms initiates shutdown; EN LOW cancels pending sleep. Active USB CDC DTR inhibits sleep, VBUS alone does not.
+- USB SLEEP? reports GPIO, USB, countdown, shutdown and reset diagnostics. GPREGRET2=0xA6 marks the poweroff path; RESETREAS.OFF confirms wake.
+- Hardware test with USB attached: LEDs extinguished and USB disconnected on disable; Trainer re-enable restored USB and automatically connected YACHT. RESETREAS=00010000, OFF_WAKE=1, RETAINED=a6, PEER=1, ROLE=1, STARTED=1.
+- Post-wake snapshot: 9494 valid frames, 8620 UART completions, zero invalid frames, UART errors or aborts. User confirmed short-disable cancellation and another successful sleep/reconnect cycle; subsequent diagnostic again reported OFF_WAKE=1 and RETAINED=a6.
+- Host regression: 100000 vectors passed. Instrumented build: flash 300644 bytes, RAM 55912 bytes; UF2 installed on verified ANCHOR serial DEC210BA233A837A.
+- Remaining: standalone operation without USB, current measurement, remote software-triggered UF2 entry (connector blocked the command), actual TX15 passthrough DFU, discovery/persistence, telemetry and SCI performance. USB diagnostics required sudo on AiPal. No production qualification claimed.
