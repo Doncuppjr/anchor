@@ -30,6 +30,14 @@ selects 460800 baud for GPREGRET 0x5A. GPREGRET 0x59 still selects 115200 baud.
 Both modes use the Nordic HCI SLIP transport with the existing timeout.
 See [the TX15 validation record](../docs/XIAO-VALIDATION.md#tx15-usb-uart-dfu-at-460800-baud).
 
+## Legacy BLE DFU connection setup
+
+Apply [patch 0004](patches/0004-keep-central-ble-dfu-parameters.patch) after
+patch 0003 for the XIAO BLE bench path. S140 requires the supervision timeout
+to exceed twice the connection interval times one plus peripheral latency.
+Keeping a central's 420 ms timeout while forcing latency 4 at 48.75 ms
+violates that bound. The patch keeps the parameters selected by the central.
+
 ## Historical Pro Micro apply and build
 
 ```sh

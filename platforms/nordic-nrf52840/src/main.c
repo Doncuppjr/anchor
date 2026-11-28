@@ -215,12 +215,26 @@ static void at_command(const char *s){
   int e=uart_configure(wire_uart,&c);atomic_set(&at_baud,e?57600:115200);
   printk("UART BAUD4 result=%d baud=%ld\n",e,(long)atomic_get(&at_baud));
  }else if(!strncmp(s,"AT+NAME",7)){char line[64];snprintf(line,sizeof(line),"OK+Name:%.55s",s+7);uart_reply(line);}
- else if(!strncmp(s,"AT+TXPW",7)){char line[32];snprintf(line,sizeof(line),"OK+Txpw:%.23s",s+7);uart_reply(line);uart_reply("OK+CAPS:1,UPDATE_UART,UPDATE_UART460800");at_identity("Central:");}
+ else if(!strncmp(s,"AT+TXPW",7)){char line[32];snprintf(line,sizeof(line),"OK+Txpw:%.23s",s+7);uart_reply(line);uart_reply(IS_ENABLED(CONFIG_ANCHOR_LEGACY_BLE_DFU) ?
+  "OK+CAPS:1,UPDATE_UART,UPDATE_UART460800,UPDATE_NRF_BLE" :
+  "OK+CAPS:1,UPDATE_UART,UPDATE_UART460800");at_identity("Central:");}
  else if(!strcmp(s,"AT+UPDATE=UART")||!strcmp(s,"AT+UPDATE=UART,460800")){
   if(role_active){uart_reply("ERROR");return;}
   update_selector=!strcmp(s,"AT+UPDATE=UART,460800")?0x5A:0x59;
   update_authorized=true;
   uart_reply(update_selector==0x5A?"OK+UPDATE:UART,460800":"OK+UPDATE:UART");
+ }
+ else if(IS_ENABLED(CONFIG_ANCHOR_LEGACY_BLE_DFU) && !strcmp(s,"AT+UPDATE=NRFBLE")){
+  if(role_active || bt_enable_read()!=0){uart_reply("ERROR");return;}
+  bt_addr_le_t dfu_identity=anchor_identity;
+  /* S140's unbonded Legacy DFU increments only the low address byte. */
+  dfu_identity.a.val[0]++;
+  char mac[13];mac_format(&dfu_identity,mac);
+  address_reply("OK+UPDATE:NRFBLE,",mac);
+  atomic_set(&update_led,1);leds_tick();
+  k_sleep(K_MSEC(100));
+  NRF_POWER->GPREGRET=0xA8;
+  sys_reboot(SYS_REBOOT_COLD);
  }
  else if(!strcmp(s,"AT+DOWNLOAD")){if(!update_authorized){uart_reply("ERROR");return;}uart_reply("OK+DOWNLOAD");atomic_set(&update_led,1);leds_tick();k_sleep(K_MSEC(100));NRF_POWER->GPREGRET=update_selector;sys_reboot(SYS_REBOOT_COLD);}
  else if(!strcmp(s,"AT+ROLE1")){
