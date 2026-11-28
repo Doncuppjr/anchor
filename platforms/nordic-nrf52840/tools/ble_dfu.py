@@ -7,6 +7,7 @@ import re
 import struct
 import sys
 import time
+from contextlib import asynccontextmanager
 
 from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
@@ -20,6 +21,7 @@ PACKET = "00001532-1212-efde-1523-785feabcd123"
 INIT_PACKET_SIZE = 20
 MAX_FIRMWARE_PACKET_SIZE = 244
 RECEIPT_INTERVAL = 8
+DISCONNECT_TIMEOUT = 5
 
 
 async def firmware_packet_size(client, packet_char):
@@ -39,9 +41,26 @@ async def firmware_packet_size(client, packet_char):
     return min(write_limit, MAX_FIRMWARE_PACKET_SIZE) & ~3
 
 
+@asynccontextmanager
+async def dfu_connection(client):
+    await client.connect()
+    try:
+        yield client
+    finally:
+        # On BlueZ the peripheral may already have disconnected while Bleak
+        # is still waiting for its local D-Bus session to close.
+        try:
+            await asyncio.wait_for(client.disconnect(), DISCONNECT_TIMEOUT)
+        except TimeoutError:
+            print("Timed out closing the local Bluetooth connection.", file=sys.stderr, flush=True)
+        except (BleakError, OSError) as exc:
+            print(f"Could not close the local Bluetooth connection: {exc}", file=sys.stderr, flush=True)
+
+
 async def transfer(device, init_packet, firmware):
     disconnected = asyncio.Event()
-    async with BleakClient(device, disconnected_callback=lambda _: disconnected.set()) as client:
+    client = BleakClient(device, disconnected_callback=lambda _: disconnected.set())
+    async with dfu_connection(client):
         service = client.services.get_service(SERVICE)
         if service is None:
             raise RuntimeError("Target does not expose the Nordic Legacy DFU service")
@@ -105,7 +124,7 @@ async def transfer(device, init_packet, firmware):
             if client.is_connected:
                 raise
         await asyncio.wait_for(disconnected.wait(), 10)
-        print("Target disconnected after ACTIVATE. Verify the application restarted.", flush=True)
+    print("Target disconnected after ACTIVATE. Verify the application restarted.", flush=True)
 
 
 async def update(address, init_packet, firmware):
