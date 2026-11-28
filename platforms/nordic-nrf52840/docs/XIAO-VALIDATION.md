@@ -168,3 +168,19 @@ and disconnected on activation. ANCHOR then returned as USB CDC 2fe3:0004.
 
 Protocol references include [Adafruit's bootloader](https://github.com/adafruit/Adafruit_nRF52_Bootloader)
 and [Nordic's Legacy DFU client](https://github.com/NordicSemiconductor/Android-DFU-Library).
+
+### Firmware packet size and transfer time
+
+The Linux installer reads the negotiated write limit from Bleak. When BlueZ
+reports the default 20 bytes, the installer uses Bleak's live MTU acquisition
+before START and keeps the 20-byte fallback if that query fails. Firmware
+writes are word-aligned and capped at 244 bytes. The bootloader still returns
+a receipt after every eight firmware packets.
+
+The same 300,964-byte image validated in 41.070 seconds from START with
+244-byte writes, then rebooted into application USB mode. The previous
+20-byte runs validated in 146.746 and 442.624 seconds. Link conditions varied.
+The fast run used a 247-byte ATT MTU and negotiated 251-octet link-layer
+payloads. Its first attempt disconnected during START before any large
+firmware writes. Direct USB UF2 recovered ANCHOR, and the same installer
+passed after AiPal rediscovered the AdaDFU device.
